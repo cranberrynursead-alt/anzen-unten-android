@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final int REQ = 11, REQ_NOTIF = 12;
+    private static final int REQ = 11, REQ_NOTIF = 12, CELEBRATE_OVER = 95;
     private static final int INK = 0xFF152033, MUTED = 0xFF5D6A7E, BG = 0xFFEEF1F5, ACCENT = 0xFF1B5FC4,
             GOOD = 0xFF1A8A54, WARN = 0xFFB97400, BAD = 0xFFC9342B;
 
@@ -218,7 +218,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.6　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.7　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
     }
 
     // ---------- 連続記録・称号と全体平均 ----------
@@ -277,10 +277,20 @@ public class MainActivity extends Activity {
                 }
                 final String text = b.toString();
                 prefs.edit().putString("teamText", text).apply();
+                // 全体平均が95点を超えた集計日は、お祝い画面を1回だけ出す（計測中は出さない）
+                final String cDate = l != null ? l.optString("date") : "";
+                final int cAvg = l != null ? l.optInt("avg") : 0;
+                final boolean celebrate = cAvg > CELEBRATE_OVER && cDate.length() > 0
+                        && !cDate.equals(prefs.getString("celebrated", ""));
                 h.post(new Runnable() {
                     @Override
                     public void run() {
                         target.setText(text);
+                        if (celebrate && !"drive".equals(screen) && !isFinishing()
+                                && !cDate.equals(prefs.getString("celebrated", ""))) {
+                            prefs.edit().putString("celebrated", cDate).apply();
+                            Celebrate.show(MainActivity.this, cDate, cAvg);
+                        }
                     }
                 });
             }

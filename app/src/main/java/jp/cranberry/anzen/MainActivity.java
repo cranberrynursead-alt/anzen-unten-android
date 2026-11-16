@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final int REQ = 11;
+    private static final int REQ = 11, REQ_NOTIF = 12;
     private static final int INK = 0xFF152033, MUTED = 0xFF5D6A7E, BG = 0xFFEEF1F5, ACCENT = 0xFF1B5FC4,
             GOOD = 0xFF1A8A54, WARN = 0xFFB97400, BAD = 0xFFC9342B;
 
@@ -72,6 +72,11 @@ public class MainActivity extends Activity {
         setContentView(sv);
         if (DriveService.trip != null && DriveService.running) showDrive(); else showIdle();
         Uploader.sendPending(this, null);
+        ReminderReceiver.schedule(this);
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIF);
+        }
     }
 
     @Override
@@ -209,7 +214,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.1", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.2　平日8:30に開始のお知らせを通知します", 12, false, MUTED), 12);
     }
 
     private void fail(String s) {

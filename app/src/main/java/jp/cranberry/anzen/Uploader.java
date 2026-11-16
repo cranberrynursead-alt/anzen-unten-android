@@ -112,6 +112,31 @@ public class Uploader {
         return new String(out.toByteArray(), StandardCharsets.UTF_8);
     }
 
+    /** 全体平均（個人が特定されない集計値のみ）を取得する。取得できなければ null。 */
+    public static JSONObject fetchStats() {
+        try {
+            String url = ENDPOINT + "?stats=1";
+            for (int i = 0; i < 4; i++) {
+                HttpURLConnection g = (HttpURLConnection) new URL(url).openConnection();
+                g.setInstanceFollowRedirects(false);
+                g.setConnectTimeout(15000);
+                g.setReadTimeout(30000);
+                int code = g.getResponseCode();
+                if (code == 301 || code == 302 || code == 303 || code == 307) {
+                    url = g.getHeaderField("Location");
+                    g.disconnect();
+                    continue;
+                }
+                String txt = read(g.getInputStream());
+                g.disconnect();
+                JSONObject o = new JSONObject(txt);
+                return o.optBoolean("ok") ? o : null;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
     private static boolean post(String body) {
         try {
             HttpURLConnection con = (HttpURLConnection) new URL(ENDPOINT).openConnection();

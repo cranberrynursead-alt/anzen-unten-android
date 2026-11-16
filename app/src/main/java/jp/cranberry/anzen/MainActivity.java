@@ -46,6 +46,7 @@ public class MainActivity extends Activity {
     private EditText nameEdit;
     private TextView msg, vSpeed, vScore, vFlash, vCounts, vStats, vGps, vSend;
     private Button resend;
+    private TextView vTeam;
     private JSONObject lastResult;
 
     private final Runnable tick = new Runnable() {
@@ -198,6 +199,9 @@ public class MainActivity extends Activity {
         s.addView(tv("採点方法（100点から減点）", 14, true, MUTED));
         add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／10秒\n\n1日の合計を、走行距離10kmあたりの減点に直して採点します（10km未満の日は減点をそのまま使います）。", 15, false, INK), 8);
 
+        myCard();
+        teamCard();
+
         LinearLayout hc = card();
         hc.addView(tv("走行履歴", 14, true, MUTED));
         JSONArray a = Uploader.load(this);
@@ -214,7 +218,73 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.4　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.5　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+    }
+
+    // ---------- 連続記録・称号と全体平均 ----------
+    private void myCard() {
+        JSONArray a = Uploader.load(this);
+        int n = 0;
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o != null && !"skip".equals(o.optString("status"))) n++;
+        }
+        long[] dates = new long[n];
+        int[] scores = new int[n];
+        boolean[] clean = new boolean[n];
+        int k = 0;
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null || "skip".equals(o.optString("status"))) continue;
+            dates[k] = o.optLong("date");
+            scores[k] = o.optInt("score");
+            clean[k] = o.optInt("brake") + o.optInt("accel") + o.optInt("corner") == 0 && o.optInt("overSec") < 10;
+            k++;
+        }
+        int[] g = Game.summary(dates, scores, clean);
+        LinearLayout c = card();
+        c.addView(tv("あなたの記録", 14, true, MUTED));
+        if (n == 0) {
+            add(c, tv("まだ記録がありません。90点以上の日を3日続けると、最初の称号「ブロンズ」がもらえます。", 15, false, INK), 8);
+            return;
+        }
+        String title = Game.title(g[0]);
+        add(c, tv("90点以上　" + g[0] + "日連続" + (title.isEmpty() ? "" : "　称号「" + title + "」"), 18, true, g[0] >= 3 ? GOOD : INK), 8);
+        add(c, tv(Game.next(g[0]) + "\n急操作ゼロの日　" + g[1] + "日\n自己ベスト　" + g[2] + "点", 15, false, INK), 4);
+    }
+
+    private void teamCard() {
+        LinearLayout c = card();
+        c.addView(tv("全体の平均（チーム目標 90点）", 14, true, MUTED));
+        vTeam = tv(prefs.getString("teamText", "全体平均を確認しています。"), 15, false, INK);
+        add(c, vTeam, 8);
+        add(c, tv("表示されるのは全員の平均だけです。個人の点数は公開されません。", 12, false, MUTED), 6);
+        final TextView target = vTeam;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSONObject s = Uploader.fetchStats();
+                if (s == null) return;
+                StringBuilder b = new StringBuilder();
+                JSONObject l = s.optJSONObject("latest"), w = s.optJSONObject("week");
+                int goal = s.optInt("goal", 90);
+                if (l != null) b.append("直近の集計日（").append(l.optString("date")).append("）　平均 ").append(l.optInt("avg")).append("点（").append(l.optInt("n")).append("名）");
+                else b.append("全体平均は集計中です（3名以上の記録がそろうと表示されます）");
+                if (w != null) {
+                    int avg = w.optInt("avg");
+                    b.append("\n直近7日間　平均 ").append(avg).append("点（").append(w.optInt("n")).append("名）　")
+                            .append(avg >= goal ? "目標達成中" : "目標まであと" + (goal - avg) + "点");
+                }
+                final String text = b.toString();
+                prefs.edit().putString("teamText", text).apply();
+                h.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        target.setText(text);
+                    }
+                });
+            }
+        }).start();
     }
 
     private void fail(String s) {
@@ -390,6 +460,9 @@ public class MainActivity extends Activity {
                 add(tc, tv(x[1], 15, false, INK), 2);
             }
         }
+
+        myCard();
+        teamCard();
 
         LinearLayout d = card();
         long dur = r.optLong("dur");

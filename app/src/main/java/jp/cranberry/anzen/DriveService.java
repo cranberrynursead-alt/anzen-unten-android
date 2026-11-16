@@ -17,6 +17,7 @@ import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+import android.os.SystemClock;
 
 import org.json.JSONObject;
 
@@ -33,6 +34,30 @@ public class DriveService extends Service implements LocationListener {
     private LocationManager lm;
     private PowerManager.WakeLock wake;
     private final Handler h = new Handler(Looper.getMainLooper());
+    // 停車中の省電力: 3分間動きがなければ測位を15秒間隔に広げ、動き出したら1秒間隔に戻す
+    private static final long FAST_MS = 1000L, SLOW_MS = 15000L, STILL_MS = 3 * 60 * 1000L;
+    private static final float MOVING_MPS = 2.0f;
+    private boolean slow;
+    private long lastMove;
+    private final Runnable watch = new Runnable() {
+        @Override
+        public void run() {
+            if (!running) return;
+            if (!slow && SystemClock.elapsedRealtime() - lastMove > STILL_MS) setSlow(true);
+            h.postDelayed(this, 60000L);
+        }
+    };
+
+    private void setSlow(boolean s) {
+        if (lm == null || slow == s) return;
+        try {
+            lm.removeUpdates(this);
+            lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, s ? SLOW_MS : FAST_MS, 0f, this, Looper.getMainLooper());
+            slow = s;
+        } catch (Exception ignored) {
+        }
+    }
+
     private final Runnable auto = new Runnable() {
         @Override
         public void run() {
@@ -163,6 +188,10 @@ public class DriveService extends Service implements LocationListener {
             error = null;
             h.removeCallbacks(auto);
             h.postDelayed(auto, autoDelayMs());
+            slow = false;
+            lastMove = SystemClock.elapsedRealtime();
+            h.removeCallbacks(watch);
+            h.postDelayed(watch, 60000L);
         } catch (Exception e) {
             error = "計測を開始できませんでした（" + e.getClass().getSimpleName() + "）。位置情報の許可を確認してください。";
             running = false;
@@ -175,6 +204,10 @@ public class DriveService extends Service implements LocationListener {
     public void onLocationChanged(Location l) {
         Trip t = trip;
         if (t == null) return;
+        if (l.hasSpeed() && l.getSpeed() > MOVING_MPS) {
+            lastMove = SystemClock.elapsedRealtime();
+            if (slow) setSlow(false);
+        }
         t.sample(l.getElapsedRealtimeNanos() / 1000000L, l.getLatitude(), l.getLongitude(),
                 l.hasSpeed(), l.getSpeed(), l.hasBearing(), l.getBearing(),
                 l.hasAccuracy() ? l.getAccuracy() : 0f);

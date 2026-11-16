@@ -107,12 +107,14 @@ public class Trip {
     }
 
     public synchronized int score() {
-        return score(brake, accel, corner, overSec);
+        return score(brake, accel, corner, overSec, dist);
     }
 
-    public static int score(int brake, int accel, int corner, double overSec) {
-        int s = 100 - brake * PEN_BRAKE - accel * PEN_ACCEL - corner * PEN_CORNER - (int) Math.floor(overSec / 10);
-        return Math.max(0, s);
+    /** 走行距離10kmあたりの減点で採点する。10km未満の走行は減点をそのまま使う。 */
+    public static int score(int brake, int accel, int corner, double overSec, double distMeters) {
+        double pen = brake * PEN_BRAKE + accel * PEN_ACCEL + corner * PEN_CORNER + Math.floor(overSec / 10);
+        double km = Math.max(distMeters / 1000.0, 10.0);
+        return (int) Math.max(0, Math.round(100 - pen * 10.0 / km));
     }
 
     public static String rank(int s) {
@@ -129,10 +131,10 @@ public class Trip {
         int over = (int) Math.floor(overSec / 10);
         int[] pen = {brake * PEN_BRAKE, accel * PEN_ACCEL, corner * PEN_CORNER, over};
         String[][] txt = {
-                {"急ブレーキ " + brake + "回（−" + pen[0] + "点）", "前の車との車間距離を長めにとり、信号や渋滞が見えたら早めにアクセルを戻して、ゆっくり減速しましょう。"},
-                {"急加速 " + accel + "回（−" + pen[1] + "点）", "発進は「5秒かけて時速20km」を目安に、アクセルをじわっと踏みましょう。合流や右折で急がなくて済むよう、余裕のあるタイミングを待ちましょう。"},
-                {"急ハンドル " + corner + "回（−" + pen[2] + "点）", "カーブや右左折は手前の直線で十分に減速し、曲がっている間はハンドルを一定に保ちましょう。"},
-                {"60km/h超過 " + Math.round(overSec) + "秒（−" + pen[3] + "点）", "次の訪問まで時間に余裕を持って出発し、流れが速い道でも速度計をこまめに確認しましょう。"}
+                {"急ブレーキ " + brake + "回", "前の車との車間距離を長めにとり、信号や渋滞が見えたら早めにアクセルを戻して、ゆっくり減速しましょう。"},
+                {"急加速 " + accel + "回", "発進は「5秒かけて時速20km」を目安に、アクセルをじわっと踏みましょう。合流や右折で急がなくて済むよう、余裕のあるタイミングを待ちましょう。"},
+                {"急ハンドル " + corner + "回", "カーブや右左折は手前の直線で十分に減速し、曲がっている間はハンドルを一定に保ちましょう。"},
+                {"60km/h超過 " + Math.round(overSec) + "秒", "次の訪問まで時間に余裕を持って出発し、流れが速い道でも速度計をこまめに確認しましょう。"}
         };
         List<String[]> out = new ArrayList<>();
         boolean[] used = new boolean[4];

@@ -192,11 +192,11 @@ public class MainActivity extends Activity {
             msg.setVisibility(View.VISIBLE);
             DriveService.error = null;
         }
-        add(c, tv("出発前に「運転開始」を押してください。開始後はGoogleマップなど他のアプリを使っても、画面を消しても計測は続きます。到着して停車したら、このアプリに戻って「運転終了」を押してください。走行中は操作しないでください。", 13, false, MUTED), 10);
+        add(c, tv("朝、最初の出発前に「運転開始」を1回押してください。開始後はGoogleマップなど他のアプリを使っても、画面を消しても、訪問中も計測は続きます。業務が終わったら、このアプリに戻って「運転終了」を押してください。押し忘れた場合は17:20に自動で終了し、結果を送信します。走行中は操作しないでください。", 13, false, MUTED), 10);
 
         LinearLayout s = card();
         s.addView(tv("採点方法（100点から減点）", 14, true, MUTED));
-        add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／10秒", 15, false, INK), 8);
+        add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／10秒\n\n1日の合計を、走行距離10kmあたりの減点に直して採点します（10km未満の日は減点をそのまま使います）。", 15, false, INK), 8);
 
         LinearLayout hc = card();
         hc.addView(tv("走行履歴", 14, true, MUTED));
@@ -214,7 +214,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.3　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.4　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
     }
 
     private void fail(String s) {
@@ -355,32 +355,7 @@ public class MainActivity extends Activity {
             showIdle();
             return;
         }
-        JSONObject r = new JSONObject();
-        try {
-            synchronized (t) {
-                long dur = Math.max(0, (System.currentTimeMillis() - t.startWall) / 1000);
-                r.put("id", Long.toString(System.currentTimeMillis(), 36) + Long.toString((long) (Math.random() * 1e9), 36));
-                r.put("date", t.startWall);
-                r.put("driver", t.driver);
-                r.put("limit", Trip.LIMIT);
-                r.put("dist", Math.round(t.dist));
-                r.put("dur", dur);
-                r.put("max", Math.round(t.max * 3.6));
-                r.put("brake", t.brake);
-                r.put("accel", t.accel);
-                r.put("corner", t.corner);
-                r.put("overSec", Math.round(t.overSec));
-                r.put("score", t.score());
-                r.put("sBrake", t.sBrake);
-                r.put("sAccel", t.sAccel);
-                r.put("sCorner", t.sCorner);
-                r.put("maxBrakeG", Math.round(t.maxBrakeG * 100) / 100.0);
-                r.put("maxAccelG", Math.round(t.maxAccelG * 100) / 100.0);
-                r.put("maxLatG", Math.round(t.maxLatG * 100) / 100.0);
-                r.put("status", t.dist >= 100 ? "pending" : "skip");
-            }
-        } catch (Exception ignored) {
-        }
+        JSONObject r = DriveService.buildResult(t);
         Uploader.add(this, r);
         lastResult = r;
         showResult(r);

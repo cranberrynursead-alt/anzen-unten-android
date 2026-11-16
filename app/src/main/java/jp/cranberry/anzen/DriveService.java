@@ -13,9 +13,15 @@ import android.location.LocationListener;
 import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
 import android.os.PowerManager;
+
+import org.json.JSONObject;
+
+import java.util.Calendar;
+import java.util.TimeZone;
 
 /** 画面を消しても他のアプリを前面にしても計測を続けるためのフォアグラウンドサービス。 */
 public class DriveService extends Service implements LocationListener {
@@ -26,6 +32,102 @@ public class DriveService extends Service implements LocationListener {
     private static final String CH = "drive";
     private LocationManager lm;
     private PowerManager.WakeLock wake;
+    private final Handler h = new Handler(Looper.getMainLooper());
+    private final Runnable auto = new Runnable() {
+        @Override
+        public void run() {
+            autoEnd();
+        }
+    };
+
+    /** 17:20（日本時間）までの残り時間。すでに過ぎていれば6時間後に自動終了する。 */
+    private static long autoDelayMs() {
+        Calendar t = Calendar.getInstance(TimeZone.getTimeZone("Asia/Tokyo"));
+        long now = t.getTimeInMillis();
+        t.set(Calendar.HOUR_OF_DAY, 17);
+        t.set(Calendar.MINUTE, 20);
+        t.set(Calendar.SECOND, 0);
+        t.set(Calendar.MILLISECOND, 0);
+        long d = t.getTimeInMillis() - now;
+        return d > 60000L ? d : 6 * 60 * 60 * 1000L;
+    }
+
+    /** 走行結果を作る（手動終了と自動終了の両方で使う）。 */
+    static JSONObject buildResult(Trip t) {
+        JSONObject r = new JSONObject();
+        try {
+            synchronized (t) {
+                long dur = Math.max(0, (System.currentTimeMillis() - t.startWall) / 1000);
+                r.put("id", Long.toString(System.currentTimeMillis(), 36) + Long.toString((long) (Math.random() * 1e9), 36));
+                r.put("date", t.startWall);
+                r.put("driver", t.driver);
+                r.put("limit", Trip.LIMIT);
+                r.put("dist", Math.round(t.dist));
+                r.put("dur", dur);
+                r.put("max", Math.round(t.max * 3.6));
+                r.put("brake", t.brake);
+                r.put("accel", t.accel);
+                r.put("corner", t.corner);
+                r.put("overSec", Math.round(t.overSec));
+                r.put("score", t.score());
+                r.put("sBrake", t.sBrake);
+                r.put("sAccel", t.sAccel);
+                r.put("sCorner", t.sCorner);
+                r.put("maxBrakeG", Math.round(t.maxBrakeG * 100) / 100.0);
+                r.put("maxAccelG", Math.round(t.maxAccelG * 100) / 100.0);
+                r.put("maxLatG", Math.round(t.maxLatG * 100) / 100.0);
+                r.put("status", t.dist >= 100 ? "pending" : "skip");
+            }
+        } catch (Exception ignored) {
+        }
+        return r;
+    }
+
+    /** 「運転終了」が押されないまま時刻になったら、自動で終了して結果を送信する。 */
+    private void autoEnd() {
+        final Trip t = trip;
+        trip = null;
+        try {
+            if (lm != null) lm.removeUpdates(this);
+        } catch (Exception ignored) {
+        }
+        if (t == null) {
+            stopSelf();
+            return;
+        }
+        JSONObject r = buildResult(t);
+        Uploader.add(this, r);
+        String text = "自動で終了し、結果を送信しました（" + r.optInt("score") + "点）。アプリの履歴で確認できます。";
+        error = text;
+        try {
+            NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+            nm.createNotificationChannel(new NotificationChannel("result", "自動終了のお知らせ", NotificationManager.IMPORTANCE_DEFAULT));
+            PendingIntent pi = PendingIntent.getActivity(this, 4, new Intent(this, MainActivity.class),
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            nm.notify(4, new Notification.Builder(this, "result")
+                    .setContentTitle("安全運転チェック")
+                    .setContentText(text)
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+                    .setContentIntent(pi)
+                    .setAutoCancel(true)
+                    .build());
+        } catch (Exception ignored) {
+        }
+        final Runnable stop = new Runnable() {
+            @Override
+            public void run() {
+                stopSelf();
+            }
+        };
+        Uploader.sendPending(this, new Runnable() {
+            @Override
+            public void run() {
+                h.post(stop);
+            }
+        });
+        h.postDelayed(stop, 90000L);
+    }
 
     @Override
     public IBinder onBind(Intent intent) {
@@ -41,7 +143,7 @@ public class DriveService extends Service implements LocationListener {
                 PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification n = new Notification.Builder(this, CH)
                 .setContentTitle("安全運転チェック 計測中")
-                .setContentText("到着したらアプリを開いて「運転終了」を押してください")
+                .setContentText("業務が終わったらアプリを開いて「運転終了」を押してください")
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setContentIntent(pi)
                 .setOngoing(true)
@@ -56,9 +158,11 @@ public class DriveService extends Service implements LocationListener {
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this, Looper.getMainLooper());
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "anzen:drive");
-            wake.acquire(6 * 60 * 60 * 1000L);
+            wake.acquire(12 * 60 * 60 * 1000L);
             running = true;
             error = null;
+            h.removeCallbacks(auto);
+            h.postDelayed(auto, autoDelayMs());
         } catch (Exception e) {
             error = "計測を開始できませんでした（" + e.getClass().getSimpleName() + "）。位置情報の許可を確認してください。";
             running = false;
@@ -91,6 +195,7 @@ public class DriveService extends Service implements LocationListener {
     @Override
     public void onDestroy() {
         running = false;
+        h.removeCallbacksAndMessages(null);
         try {
             if (lm != null) lm.removeUpdates(this);
         } catch (Exception ignored) {

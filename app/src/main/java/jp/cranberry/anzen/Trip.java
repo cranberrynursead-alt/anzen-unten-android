@@ -7,6 +7,8 @@ import java.util.List;
 public class Trip {
     static final double G = 9.80665;
     static final double TH_ACCEL = 0.25 * G, TH_BRAKE = 0.30 * G, TH_CORNER = 0.40 * G;
+    /** 参考記録用の厳しめの基準（点数には使わない）。 */
+    static final double S_ACCEL = 0.20 * G, S_BRAKE = 0.25 * G, S_CORNER = 0.30 * G;
     public static final int LIMIT = 60;
     public static final int PEN_BRAKE = 5, PEN_ACCEL = 3, PEN_CORNER = 3;
 
@@ -15,6 +17,8 @@ public class Trip {
     public long startT = -1, endT = -1;
     public double dist, max, overSec, curKmh;
     public int brake, accel, corner;
+    public int sBrake, sAccel, sCorner;
+    public double maxBrakeG, maxAccelG, maxLatG;
     public boolean over;
     public float accuracy = -1;
     public String flash = "";
@@ -25,6 +29,7 @@ public class Trip {
     private double lastLat, lastLon, lastVs;
     private float lastHd;
     private long coolBrake = Long.MIN_VALUE / 2, coolAccel = Long.MIN_VALUE / 2, coolCorner = Long.MIN_VALUE / 2;
+    private long sCoolBrake = Long.MIN_VALUE / 2, sCoolAccel = Long.MIN_VALUE / 2, sCoolCorner = Long.MIN_VALUE / 2;
 
     public Trip(String driver, long startWall) {
         this.driver = driver;
@@ -76,11 +81,20 @@ public class Trip {
                 } else if (a <= -TH_BRAKE) {
                     if (t - coolBrake >= 4000) { coolBrake = t; brake++; flash = "急ブレーキを検知"; flashUntil = t + 3000; }
                 }
+                if (a > 0) maxAccelG = Math.max(maxAccelG, a / G); else maxBrakeG = Math.max(maxBrakeG, -a / G);
+                if (a >= S_ACCEL) {
+                    if (t - sCoolAccel >= 4000) { sCoolAccel = t; sAccel++; }
+                } else if (a <= -S_BRAKE) {
+                    if (t - sCoolBrake >= 4000) { sCoolBrake = t; sBrake++; }
+                }
                 if (hasHd && lastHasHd && vs > 5 && lastVs > 5) {
                     double dh = Math.abs(((hd - lastHd + 540) % 360) - 180);
-                    if (vs * Math.toRadians(dh) / dt >= TH_CORNER && t - coolCorner >= 4000) {
+                    double latAcc = vs * Math.toRadians(dh) / dt;
+                    maxLatG = Math.max(maxLatG, latAcc / G);
+                    if (latAcc >= TH_CORNER && t - coolCorner >= 4000) {
                         coolCorner = t; corner++; flash = "急ハンドルを検知"; flashUntil = t + 3000;
                     }
+                    if (latAcc >= S_CORNER && t - sCoolCorner >= 4000) { sCoolCorner = t; sCorner++; }
                 }
             }
             if (vs * 3.6 > LIMIT) { overSec += dt; over = true; } else over = false;

@@ -209,7 +209,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.0", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.1", 12, false, MUTED), 12);
     }
 
     private void fail(String s) {
@@ -365,6 +365,12 @@ public class MainActivity extends Activity {
                 r.put("corner", t.corner);
                 r.put("overSec", Math.round(t.overSec));
                 r.put("score", t.score());
+                r.put("sBrake", t.sBrake);
+                r.put("sAccel", t.sAccel);
+                r.put("sCorner", t.sCorner);
+                r.put("maxBrakeG", Math.round(t.maxBrakeG * 100) / 100.0);
+                r.put("maxAccelG", Math.round(t.maxAccelG * 100) / 100.0);
+                r.put("maxLatG", Math.round(t.maxLatG * 100) / 100.0);
                 r.put("status", t.dist >= 100 ? "pending" : "skip");
             }
         } catch (Exception ignored) {

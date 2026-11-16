@@ -214,7 +214,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.2　平日8:30に開始のお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.3　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
     }
 
     private void fail(String s) {
@@ -244,6 +244,7 @@ public class MainActivity extends Activity {
         }
         DriveService.trip = new Trip(name, System.currentTimeMillis());
         DriveService.error = null;
+        ReminderReceiver.markStarted(this);
         startForegroundService(new Intent(this, DriveService.class));
         showDrive();
     }

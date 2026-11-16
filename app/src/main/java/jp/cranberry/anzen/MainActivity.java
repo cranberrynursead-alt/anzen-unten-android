@@ -218,7 +218,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.7　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.8　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
     }
 
     // ---------- 連続記録・称号と全体平均 ----------

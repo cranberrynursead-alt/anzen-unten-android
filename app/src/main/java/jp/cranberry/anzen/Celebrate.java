@@ -4,7 +4,11 @@ import android.app.Activity;
 import android.app.Dialog;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
+import android.graphics.Matrix;
 import android.graphics.Paint;
+import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.view.View;
@@ -49,10 +53,15 @@ public class Celebrate {
 
     private static class Confetti extends View {
         private static final int N = 90;
-        private static final int[] COLORS = {0xFFFFC83D, 0xFFFF6B6B, 0xFF4DABF7, 0xFF51CF66, 0xFFF783AC, 0xFFFFFFFF};
+        private static final int[] COLORS = {0xFFFFFFFF, 0xFFFFF3BF, 0xFFFFFFFF, 0xFFFFE066, 0xFFFFFFFF, 0xFFFFD8E8};
         private final float[] x = new float[N], y = new float[N], vy = new float[N], sway = new float[N], phase = new float[N], size = new float[N];
         private final int[] color = new int[N];
+        private static final int[] BG = {0xFFFF6B9D, 0xFFFF9F43, 0xFFFFD93D, 0xFF51CF66, 0xFF4DABF7, 0xFF9775FA, 0xFFFF6B9D, 0xFFFF9F43, 0xFFFFD93D};
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint bg = new Paint();
+        private final Matrix m = new Matrix();
+        private final RectF card = new RectF();
+        private LinearGradient grad;
         private final Random rnd = new Random();
         private final String line1, line2;
         private final float den;
@@ -76,6 +85,8 @@ public class Celebrate {
                 size[i] = (5 + rnd.nextFloat() * 7) * den;
                 color[i] = COLORS[rnd.nextInt(COLORS.length)];
             }
+            grad = new LinearGradient(0, 0, 3f * w, 3f * hgt, BG, null, Shader.TileMode.CLAMP);
+            bg.setShader(grad);
             last = SystemClock.uptimeMillis();
             ready = true;
         }
@@ -88,8 +99,14 @@ public class Celebrate {
             long now = SystemClock.uptimeMillis();
             float dt = Math.min(0.05f, (now - last) / 1000f);
             last = now;
-            cv.drawColor(0xD9152033);
             float t = now / 1000f;
+            // 背景: 虹色のグラデーションを6秒かけて往復させる
+            float ph = (t % 12f) / 6f;
+            if (ph > 1f) ph = 2f - ph;
+            m.setTranslate(-2f * w * ph, -2f * hgt * ph);
+            grad.setLocalMatrix(m);
+            bg.setShader(grad);
+            cv.drawRect(0, 0, w, hgt, bg);
             p.setStyle(Paint.Style.FILL);
             for (int i = 0; i < N; i++) {
                 y[i] += vy[i] * dt;
@@ -104,19 +121,24 @@ public class Celebrate {
                 cv.drawRect(px - size[i] / 2, y[i] - size[i] / 4, px + size[i] / 2, y[i] + size[i] / 4, p);
                 cv.restore();
             }
+            float top = hgt * 0.32f;
+            card.set(24 * den, top, w - 24 * den, top + 170 * den);
+            p.setColor(0xFFFFFFFF);
+            cv.drawRoundRect(card, 20 * den, 20 * den, p);
             p.setTextAlign(Paint.Align.CENTER);
             p.setTypeface(Typeface.DEFAULT_BOLD);
-            p.setColor(0xFFFFC83D);
-            p.setTextSize(40 * den);
-            cv.drawText(line1, w / 2f, hgt * 0.42f, p);
-            p.setColor(0xFFFFFFFF);
+            p.setColor(0xFFD4537E);
+            p.setTextSize(38 * den);
+            cv.drawText(line1, w / 2f, top + 62 * den, p);
+            p.setColor(0xFF152033);
             p.setTextSize(20 * den);
-            cv.drawText(line2, w / 2f, hgt * 0.42f + 44 * den, p);
+            cv.drawText(line2, w / 2f, top + 102 * den, p);
             p.setTypeface(Typeface.DEFAULT);
             p.setTextSize(15 * den);
-            cv.drawText("みなさんの安全運転のおかげです", w / 2f, hgt * 0.42f + 78 * den, p);
-            p.setColor(0xB3FFFFFF);
-            p.setTextSize(13 * den);
+            cv.drawText("みなさんの安全運転のおかげです", w / 2f, top + 136 * den, p);
+            p.setTypeface(Typeface.DEFAULT_BOLD);
+            p.setColor(0xFFFFFFFF);
+            p.setTextSize(14 * den);
             cv.drawText("タップで閉じる", w / 2f, hgt * 0.9f, p);
             postInvalidateOnAnimation();
         }

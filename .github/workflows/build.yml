@@ -25,6 +25,12 @@ jobs:
         run: test -f signing.jks || keytool -genkeypair -keystore signing.jks -storepass anzenunten -keypass anzenunten -alias anzen -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Anzen Unten, O=Cranberry"
       - run: gradle --no-daemon assembleRelease
       - run: cp app/build/outputs/apk/release/app-release.apk anzen-unten.apk
+      - name: Write version.txt for in-app update
+        run: |
+          code=$(grep -oP "versionCode \K[0-9]+" app/build.gradle)
+          name=$(grep -oP "versionName '\K[^']+" app/build.gradle)
+          echo "$code $name" > version.txt
+          cat version.txt
       - uses: actions/upload-artifact@v4
         with:
           name: apk
@@ -32,4 +38,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
-          files: anzen-unten.apk
+          files: |
+            anzen-unten.apk
+            version.txt

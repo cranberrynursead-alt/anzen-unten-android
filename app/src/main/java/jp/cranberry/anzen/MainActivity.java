@@ -171,6 +171,7 @@ public class MainActivity extends Activity {
         screen = "idle";
         h.removeCallbacks(tick);
         header();
+        updateCard();
         LinearLayout c = card();
         c.addView(tv("速度の基準　60km/h（一般道の法定最高速度）", 14, true, MUTED));
         add(c, tv("スタッフ名（必須・氏名を入力）", 13, false, MUTED), 12);
@@ -197,7 +198,7 @@ public class MainActivity extends Activity {
 
         LinearLayout s = card();
         s.addView(tv("採点方法（100点から減点）", 14, true, MUTED));
-        add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／10秒\n\n1日の合計を、走行距離10kmあたりの減点に直して採点します（10km未満の日は減点をそのまま使います）。", 15, false, INK), 8);
+        add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／5秒\n\n1日の合計を、走行距離15kmあたりの減点に直して採点します（15km未満の日は減点をそのまま使います）。", 15, false, INK), 8);
 
         myCard();
         teamCard();
@@ -218,7 +219,35 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.8　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.9　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+    }
+
+    // ---------- アプリ内アップデート ----------
+    private void updateCard() {
+        final LinearLayout c = card();
+        c.setVisibility(View.GONE);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final String[] v = Updater.latest();
+                if (v == null || Long.parseLong(v[0]) <= Updater.currentCode(MainActivity.this)) return;
+                h.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!"idle".equals(screen) || isFinishing()) return;
+                        c.addView(tv("新しいバージョン " + v[1] + " があります", 16, true, ACCENT));
+                        add(c, tv("「更新する」を押し、表示された画面で「更新」を押してください。記録や名前はそのまま残ります。計測していないときに更新してください。", 13, false, MUTED), 6);
+                        add(c, btn("更新する", ACCENT, Color.WHITE, new View.OnClickListener() {
+                            @Override
+                            public void onClick(View x) {
+                                Updater.start(MainActivity.this);
+                            }
+                        }), 10);
+                        c.setVisibility(View.VISIBLE);
+                    }
+                });
+            }
+        }).start();
     }
 
     // ---------- 連続記録・称号と全体平均 ----------

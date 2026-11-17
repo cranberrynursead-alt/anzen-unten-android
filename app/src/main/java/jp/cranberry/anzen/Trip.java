@@ -6,9 +6,14 @@ import java.util.List;
 /** 1回の走行の計測と採点。ブラウザ版と同じ判定ロジック。 */
 public class Trip {
     static final double G = 9.80665;
-    static final double TH_ACCEL = 0.25 * G, TH_BRAKE = 0.30 * G, TH_CORNER = 0.40 * G;
-    /** 参考記録用の厳しめの基準（点数には使わない）。 */
-    static final double S_ACCEL = 0.20 * G, S_BRAKE = 0.25 * G, S_CORNER = 0.30 * G;
+    /** 採点の基準（v1.9で厳しくした）。 */
+    static final double TH_ACCEL = 0.20 * G, TH_BRAKE = 0.25 * G, TH_CORNER = 0.30 * G;
+    /** 参考記録用の旧基準（v1.8までの採点基準。点数には使わない）。 */
+    static final double S_ACCEL = 0.25 * G, S_BRAKE = 0.30 * G, S_CORNER = 0.40 * G;
+    /** 車では出ない大きさの値はGPSのぶれ（歩行中など）とみなして無視する。 */
+    static final double NOISE = 0.7 * G;
+    /** 速度超過は何秒ごとに1点減点するか。減点を何kmあたりに直すか。 */
+    public static final int OVER_STEP = 5, PER_KM = 15;
     public static final int LIMIT = 60;
     public static final int PEN_BRAKE = 5, PEN_ACCEL = 3, PEN_CORNER = 3;
 
@@ -76,6 +81,7 @@ public class Trip {
             if (vs > 0.5) dist += (vs + lastVs) / 2 * dt;
             if (dt <= 3) {
                 double a = (vs - lastVs) / dt;
+                if (Math.abs(a) >= NOISE) a = 0;
                 if (a >= TH_ACCEL) {
                     if (t - coolAccel >= 4000) { coolAccel = t; accel++; flash = "急加速を検知"; flashUntil = t + 3000; }
                 } else if (a <= -TH_BRAKE) {
@@ -90,6 +96,7 @@ public class Trip {
                 if (hasHd && lastHasHd && vs > 5 && lastVs > 5) {
                     double dh = Math.abs(((hd - lastHd + 540) % 360) - 180);
                     double latAcc = vs * Math.toRadians(dh) / dt;
+                    if (latAcc >= NOISE) latAcc = 0;
                     maxLatG = Math.max(maxLatG, latAcc / G);
                     if (latAcc >= TH_CORNER && t - coolCorner >= 4000) {
                         coolCorner = t; corner++; flash = "急ハンドルを検知"; flashUntil = t + 3000;
@@ -110,11 +117,11 @@ public class Trip {
         return score(brake, accel, corner, overSec, dist);
     }
 
-    /** 走行距離10kmあたりの減点で採点する。10km未満の走行は減点をそのまま使う。 */
+    /** 走行距離15kmあたりの減点で採点する。15km未満の走行は減点をそのまま使う。 */
     public static int score(int brake, int accel, int corner, double overSec, double distMeters) {
-        double pen = brake * PEN_BRAKE + accel * PEN_ACCEL + corner * PEN_CORNER + Math.floor(overSec / 10);
-        double km = Math.max(distMeters / 1000.0, 10.0);
-        return (int) Math.max(0, Math.round(100 - pen * 10.0 / km));
+        double pen = brake * PEN_BRAKE + accel * PEN_ACCEL + corner * PEN_CORNER + Math.floor(overSec / OVER_STEP);
+        double km = Math.max(distMeters / 1000.0, PER_KM);
+        return (int) Math.max(0, Math.round(100 - pen * PER_KM / km));
     }
 
     public static String rank(int s) {
@@ -128,7 +135,7 @@ public class Trip {
 
     /** 改善点。各要素は {見出し, 説明}。減点の大きい順。 */
     public static List<String[]> tips(int brake, int accel, int corner, double overSec) {
-        int over = (int) Math.floor(overSec / 10);
+        int over = (int) Math.floor(overSec / OVER_STEP);
         int[] pen = {brake * PEN_BRAKE, accel * PEN_ACCEL, corner * PEN_CORNER, over};
         String[][] txt = {
                 {"急ブレーキ " + brake + "回", "前の車との車間距離を長めにとり、信号や渋滞が見えたら早めにアクセルを戻して、ゆっくり減速しましょう。"},
@@ -145,7 +152,7 @@ public class Trip {
             used[best] = true;
             out.add(txt[best]);
         }
-        if (overSec > 0 && overSec < 10) {
+        if (overSec > 0 && overSec < OVER_STEP) {
             out.add(new String[]{"60km/h超過 " + Math.round(overSec) + "秒（減点なし）", "短時間ですが60km/hを超えていました。下り坂や追い越しの場面で速度計を確認しましょう。"});
         }
         return out;

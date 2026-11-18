@@ -8,19 +8,39 @@ import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 
 import java.text.SimpleDateFormat;
 import java.util.Calendar;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Set;
 import java.util.TimeZone;
 
-/** 平日8:30に開始のお知らせ、平日13:00に当日未使用の場合のお知らせを通知する。 */
+/** 営業日（土日祝・年末年始を除く）の8:30に開始のお知らせ、13:00に当日未使用の場合のお知らせを通知する。 */
 public class ReminderReceiver extends BroadcastReceiver {
     static final String ACTION = "jp.cranberry.anzen.REMIND";
     static final String ACTION_NOON = "jp.cranberry.anzen.REMIND_NOON";
     private static final String CH = "remind";
     private static final String TZ = "Asia/Tokyo";
+
+    /** 祝日と年末年始の休業日（12/30〜1/3）。この日はお知らせを出さない。 */
+    private static final Set<String> HOLIDAYS = new HashSet<>(java.util.Arrays.asList(
+            "20261123", "20261230", "20261231",
+            "20270101", "20270102", "20270103", "20270111", "20270211", "20270223", "20270322",
+            "20270429", "20270503", "20270504", "20270505", "20270719", "20270811", "20270920",
+            "20270923", "20271011", "20271103", "20271123", "20271230", "20271231"));
+
+    /** 時刻どおりに通知できる設定になっているか（Android 12以降は「アラームとリマインダー」の許可が必要）。 */
+    static boolean exactAllowed(Context c) {
+        if (Build.VERSION.SDK_INT < 31) return true;
+        try {
+            return ((AlarmManager) c.getSystemService(Context.ALARM_SERVICE)).canScheduleExactAlarms();
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
     /** 今日の日付（日本時間、yyyyMMdd）。 */
     static String today() {
@@ -44,7 +64,7 @@ public class ReminderReceiver extends BroadcastReceiver {
             String a = i == null ? null : i.getAction();
             Calendar now = Calendar.getInstance(TimeZone.getTimeZone(TZ));
             int d = now.get(Calendar.DAY_OF_WEEK);
-            boolean weekday = d != Calendar.SATURDAY && d != Calendar.SUNDAY;
+            boolean weekday = d != Calendar.SATURDAY && d != Calendar.SUNDAY && !HOLIDAYS.contains(today());
             if (weekday && !DriveService.running) {
                 if (ACTION.equals(a)) {
                     show(c, 2, "運転の前に「運転開始」を押してください");
@@ -75,7 +95,13 @@ public class ReminderReceiver extends BroadcastReceiver {
             Intent in = new Intent(c, ReminderReceiver.class).setAction(action);
             PendingIntent pi = PendingIntent.getBroadcast(c, code, in,
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.getTimeInMillis(), pi);
+            // 以前は「おおよその時刻」の予約で、前日に予約すると数時間遅れることがあった。
+            // 許可があれば時刻どおりに、なければ最大10分の幅で鳴らす。
+            if (exactAllowed(c)) {
+                am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.getTimeInMillis(), pi);
+            } else {
+                am.setWindow(AlarmManager.RTC_WAKEUP, t.getTimeInMillis(), 10 * 60 * 1000L, pi);
+            }
         } catch (Exception ignored) {
         }
     }

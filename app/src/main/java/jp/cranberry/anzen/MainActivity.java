@@ -48,6 +48,7 @@ public class MainActivity extends Activity {
     private Button resend;
     private TextView vTeam;
     private JSONObject lastResult;
+    private LinearLayout alarmCard;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -83,6 +84,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        ReminderReceiver.schedule(this);
+        if (alarmCard != null && ReminderReceiver.exactAllowed(this)) alarmCard.setVisibility(View.GONE);
         if ("drive".equals(screen)) {
             h.removeCallbacks(tick);
             h.post(tick);
@@ -172,6 +175,7 @@ public class MainActivity extends Activity {
         h.removeCallbacks(tick);
         header();
         updateCard();
+        alarmCard();
         LinearLayout c = card();
         c.addView(tv("速度の基準　60km/h（一般道の法定最高速度）", 14, true, MUTED));
         add(c, tv("スタッフ名（必須・氏名を入力）", 13, false, MUTED), 12);
@@ -219,7 +223,27 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.9　平日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.10　営業日の8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+    }
+
+    // ---------- 時刻どおりの通知の許可 ----------
+    private void alarmCard() {
+        alarmCard = null;
+        if (ReminderReceiver.exactAllowed(this)) return;
+        LinearLayout c = card();
+        alarmCard = c;
+        c.addView(tv("お知らせを時刻どおりに受け取る設定", 16, true, WARN));
+        add(c, tv("8:30と13:00のお知らせを時刻どおりに届けるため、次の画面で「アラームとリマインダーの設定を許可」をオンにして、このアプリに戻ってください。", 13, false, MUTED), 6);
+        add(c, btn("設定を開く", ACCENT, Color.WHITE, new View.OnClickListener() {
+            @Override
+            public void onClick(View x) {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                            android.net.Uri.parse("package:" + getPackageName())));
+                } catch (Exception ignored) {
+                }
+            }
+        }), 10);
     }
 
     // ---------- アプリ内アップデート ----------

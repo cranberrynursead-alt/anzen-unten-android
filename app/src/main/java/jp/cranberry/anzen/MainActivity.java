@@ -202,7 +202,7 @@ public class MainActivity extends Activity {
 
         LinearLayout s = card();
         s.addView(tv("採点方法（100点から減点）", 14, true, MUTED));
-        add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／5秒\n\n1日の合計を、走行距離15kmあたりの減点に直して採点します（15km未満の日は減点をそのまま使います）。", 15, false, INK), 8);
+        add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／5秒\n\n1日の合計を、走行距離15kmあたりの減点に直して採点します（15km未満の日は減点をそのまま使います）。\n時速15km未満での急加速・急ブレーキは、誤検知を防ぐため数えません。", 15, false, INK), 8);
 
         myCard();
         teamCard();
@@ -223,7 +223,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.11　毎日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.12　毎日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
     }
 
     // ---------- 時刻どおりの通知の許可 ----------

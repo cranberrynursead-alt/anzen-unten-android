@@ -12,6 +12,8 @@ public class Trip {
     static final double S_ACCEL = 0.25 * G, S_BRAKE = 0.30 * G, S_CORNER = 0.40 * G;
     /** 車では出ない大きさの値はGPSのぶれ（歩行中など）とみなして無視する。 */
     static final double NOISE = 0.7 * G;
+    /** これ未満の速度（時速15km）では急加速・急ブレーキを数えない。徒歩や訪問中のGPSのぶれを拾わないため。 */
+    static final double MIN_EVENT_MPS = 15 / 3.6;
     /** 速度超過は何秒ごとに1点減点するか。減点を何kmあたりに直すか。 */
     public static final int OVER_STEP = 5, PER_KM = 15;
     public static final int LIMIT = 60;
@@ -82,6 +84,9 @@ public class Trip {
             if (dt <= 3) {
                 double a = (vs - lastVs) / dt;
                 if (Math.abs(a) >= NOISE) a = 0;
+                // 加速は加速後の速度、減速は減速前の速度が時速15km以上のときだけ対象にする
+                if (a > 0 && vs < MIN_EVENT_MPS) a = 0;
+                if (a < 0 && lastVs < MIN_EVENT_MPS) a = 0;
                 if (a >= TH_ACCEL) {
                     if (t - coolAccel >= 4000) { coolAccel = t; accel++; flash = "急加速を検知"; flashUntil = t + 3000; }
                 } else if (a <= -TH_BRAKE) {

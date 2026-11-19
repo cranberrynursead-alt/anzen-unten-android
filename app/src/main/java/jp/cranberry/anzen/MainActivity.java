@@ -223,7 +223,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.10　営業日の8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.11　毎日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
     }
 
     // ---------- 時刻どおりの通知の許可 ----------
@@ -291,7 +291,7 @@ public class MainActivity extends Activity {
             if (o == null || "skip".equals(o.optString("status"))) continue;
             dates[k] = o.optLong("date");
             scores[k] = o.optInt("score");
-            clean[k] = o.optInt("brake") + o.optInt("accel") + o.optInt("corner") == 0 && o.optInt("overSec") < 10;
+            clean[k] = o.optInt("brake") + o.optInt("accel") + o.optInt("corner") == 0 && o.optInt("overSec") < Trip.OVER_STEP;
             k++;
         }
         int[] g = Game.summary(dates, scores, clean);

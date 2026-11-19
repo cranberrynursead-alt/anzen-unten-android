@@ -116,6 +116,8 @@ public class DriveService extends Service implements LocationListener {
             if (lm != null) lm.removeUpdates(this);
         } catch (Exception ignored) {
         }
+        // 自動終了の直後に「運転開始」が押されても、新しい計測を始められるようにしておく
+        running = false;
         if (t == null) {
             stopSelf();
             return;
@@ -142,7 +144,8 @@ public class DriveService extends Service implements LocationListener {
         final Runnable stop = new Runnable() {
             @Override
             public void run() {
-                stopSelf();
+                // 送信待ちの間に新しい計測が始まっていたら止めない
+                if (trip == null && !running) stopSelf();
             }
         };
         Uploader.sendPending(this, new Runnable() {
@@ -181,6 +184,10 @@ public class DriveService extends Service implements LocationListener {
             }
             lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this, Looper.getMainLooper());
+            try {
+                if (wake != null && wake.isHeld()) wake.release();
+            } catch (Exception ignored) {
+            }
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
             wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "anzen:drive");
             wake.acquire(12 * 60 * 60 * 1000L);

@@ -20,6 +20,7 @@ import java.util.TimeZone;
 public class ReminderReceiver extends BroadcastReceiver {
     static final String ACTION = "jp.cranberry.anzen.REMIND";
     static final String ACTION_NOON = "jp.cranberry.anzen.REMIND_NOON";
+    static final String ACTION_TEST = "jp.cranberry.anzen.REMIND_TEST";
     private static final String CH = "remind";
     private static final String TZ = "Asia/Tokyo";
 
@@ -53,6 +54,20 @@ public class ReminderReceiver extends BroadcastReceiver {
     public void onReceive(Context c, Intent i) {
         try {
             String a = i == null ? null : i.getAction();
+            if (ACTION_TEST.equals(a)) {
+                show(c, 6, "1分後の通知テストです。これが届けば、時刻どおりの通知は正常です。");
+                return;
+            }
+            if (ACTION.equals(a) || ACTION_NOON.equals(a)) {
+                c.getSharedPreferences("anzen", Context.MODE_PRIVATE).edit()
+                        .putLong("remFired", System.currentTimeMillis()).apply();
+            }
+            // 計測が途中で止まっているときは、開始のお知らせの代わりに再開を促す
+            if ((ACTION.equals(a) || ACTION_NOON.equals(a)) && !DriveService.running && DriveService.loadSaved(c) != null) {
+                show(c, 2, "計測が途中で止まっています。アプリを開いてください。");
+                schedule(c);
+                return;
+            }
             // 土日祝も訪問があるため、曜日や祝日に関係なく毎日お知らせする
             if (!DriveService.running) {
                 if (ACTION.equals(a)) {
@@ -72,6 +87,20 @@ public class ReminderReceiver extends BroadcastReceiver {
         one(c, ACTION_NOON, 3, 13, 0);
     }
 
+    /** 通知テスト：すぐに1通、1分後にもう1通出す（通知の許可と、時刻どおりの予約を別々に確かめる）。 */
+    static void test(Context c) {
+        try {
+            show(c, 5, "通知テストです。1分後にもう1通届きます。");
+            AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+            PendingIntent pi = PendingIntent.getBroadcast(c, 9, new Intent(c, ReminderReceiver.class).setAction(ACTION_TEST),
+                    PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+            long at = System.currentTimeMillis() + 60000L;
+            if (exactAllowed(c)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pi);
+            else am.setWindow(AlarmManager.RTC_WAKEUP, at, 60000L, pi);
+        } catch (Exception ignored) {
+        }
+    }
+
     private static void one(Context c, String action, int code, int hour, int minute) {
         try {
             AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
@@ -81,6 +110,7 @@ public class ReminderReceiver extends BroadcastReceiver {
             t.set(Calendar.SECOND, 0);
             t.set(Calendar.MILLISECOND, 0);
             if (t.getTimeInMillis() <= System.currentTimeMillis() + 30000L) t.add(Calendar.DAY_OF_MONTH, 1);
+            c.getSharedPreferences("anzen", Context.MODE_PRIVATE).edit().putLong("remNext" + code, t.getTimeInMillis()).apply();
             Intent in = new Intent(c, ReminderReceiver.class).setAction(action);
             PendingIntent pi = PendingIntent.getBroadcast(c, code, in,
                     PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);

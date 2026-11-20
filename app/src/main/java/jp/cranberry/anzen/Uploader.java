@@ -137,6 +137,31 @@ public class Uploader {
         return null;
     }
 
+    /** 名前が名簿にあるか。確認できなければ null（名簿の中身は取得しない）。 */
+    public static Boolean checkName(String name) {
+        try {
+            String url = ENDPOINT + "?check=" + java.net.URLEncoder.encode(name, "UTF-8");
+            for (int i = 0; i < 4; i++) {
+                HttpURLConnection g = (HttpURLConnection) new URL(url).openConnection();
+                g.setInstanceFollowRedirects(false);
+                g.setConnectTimeout(15000);
+                g.setReadTimeout(30000);
+                int code = g.getResponseCode();
+                if (code == 301 || code == 302 || code == 303 || code == 307) {
+                    url = g.getHeaderField("Location");
+                    g.disconnect();
+                    continue;
+                }
+                String txt = read(g.getInputStream());
+                g.disconnect();
+                JSONObject o = new JSONObject(txt);
+                return o.optBoolean("ok") && o.has("hit") ? o.optBoolean("hit") : null;
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
     private static boolean post(String body) {
         try {
             HttpURLConnection con = (HttpURLConnection) new URL(ENDPOINT).openConnection();

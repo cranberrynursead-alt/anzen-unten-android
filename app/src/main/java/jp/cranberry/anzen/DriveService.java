@@ -44,6 +44,7 @@ public class DriveService extends Service implements LocationListener {
         public void run() {
             if (!running) return;
             if (!slow && SystemClock.elapsedRealtime() - lastMove > STILL_MS) setSlow(true);
+            save(DriveService.this);
             h.postDelayed(this, 60000L);
         }
     };
@@ -77,12 +78,57 @@ public class DriveService extends Service implements LocationListener {
         return d > 60000L ? d : 6 * 60 * 60 * 1000L;
     }
 
+    // ---- 途中経過の保存（アプリが強制終了されても、続きから再開できるようにする）----
+    private static final String SAVE_KEY = "trip";
+
+    /** 計測中の途中経過を端末に保存する（1分ごと）。 */
+    static void save(Context c) {
+        Trip t = trip;
+        if (t == null) return;
+        try {
+            long now = System.currentTimeMillis();
+            t.savedAt = now;
+            c.getSharedPreferences("anzen", Context.MODE_PRIVATE).edit().putString(SAVE_KEY, t.toJson(now).toString()).apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    static void clearSaved(Context c) {
+        c.getSharedPreferences("anzen", Context.MODE_PRIVATE).edit().remove(SAVE_KEY).apply();
+    }
+
+    /** 保存してある途中経過。なければ null。 */
+    static Trip loadSaved(Context c) {
+        try {
+            String s = c.getSharedPreferences("anzen", Context.MODE_PRIVATE).getString(SAVE_KEY, null);
+            return s == null ? null : Trip.fromJson(new JSONObject(s));
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** 再開せずに締めるべき計測か（前日以前のもの、または17:20の自動終了時刻を過ぎたもの）。 */
+    static boolean stale(Trip t) {
+        TimeZone tz = TimeZone.getTimeZone("Asia/Tokyo");
+        Calendar now = Calendar.getInstance(tz), st = Calendar.getInstance(tz);
+        st.setTimeInMillis(t.startWall);
+        if (now.get(Calendar.YEAR) != st.get(Calendar.YEAR) || now.get(Calendar.DAY_OF_YEAR) != st.get(Calendar.DAY_OF_YEAR)) return true;
+        Calendar end = Calendar.getInstance(tz);
+        end.set(Calendar.HOUR_OF_DAY, 17); end.set(Calendar.MINUTE, 20); end.set(Calendar.SECOND, 0); end.set(Calendar.MILLISECOND, 0);
+        return now.getTimeInMillis() >= end.getTimeInMillis() && t.startWall < end.getTimeInMillis();
+    }
+
     /** 走行結果を作る（手動終了と自動終了の両方で使う）。 */
     static JSONObject buildResult(Trip t) {
+        return buildResult(t, System.currentTimeMillis());
+    }
+
+    /** endWall を終了時刻として走行結果を作る。 */
+    static JSONObject buildResult(Trip t, long endWall) {
         JSONObject r = new JSONObject();
         try {
             synchronized (t) {
-                long dur = Math.max(0, (System.currentTimeMillis() - t.startWall) / 1000);
+                long dur = Math.max(0, (endWall - t.startWall) / 1000);
                 r.put("id", Long.toString(System.currentTimeMillis(), 36) + Long.toString((long) (Math.random() * 1e9), 36));
                 r.put("date", t.startWall);
                 r.put("driver", t.driver);
@@ -112,6 +158,7 @@ public class DriveService extends Service implements LocationListener {
     private void autoEnd() {
         final Trip t = trip;
         trip = null;
+        clearSaved(this);
         try {
             if (lm != null) lm.removeUpdates(this);
         } catch (Exception ignored) {
@@ -164,7 +211,7 @@ public class DriveService extends Service implements LocationListener {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        if (running) return START_NOT_STICKY;
+        if (running) return START_STICKY;
         NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CH, "運転の計測", NotificationManager.IMPORTANCE_LOW));
         PendingIntent pi = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class),
@@ -182,6 +229,17 @@ public class DriveService extends Service implements LocationListener {
             } else {
                 startForeground(1, n);
             }
+            // システムに止められて再起動されたときは、保存してある途中経過から続ける
+            if (trip == null) {
+                Trip s = loadSaved(this);
+                if (s != null && !stale(s)) trip = s;
+            }
+            if (trip == null) {
+                stopForeground(true);
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+            save(this);
             lm = (LocationManager) getSystemService(Context.LOCATION_SERVICE);
             lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, this, Looper.getMainLooper());
             try {
@@ -203,8 +261,9 @@ public class DriveService extends Service implements LocationListener {
             error = "計測を開始できませんでした（" + e.getClass().getSimpleName() + "）。位置情報の許可を確認してください。";
             running = false;
             stopSelf();
+            return START_NOT_STICKY;
         }
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     @Override

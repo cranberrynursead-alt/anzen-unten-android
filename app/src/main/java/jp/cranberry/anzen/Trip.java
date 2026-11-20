@@ -1,5 +1,7 @@
 package jp.cranberry.anzen;
 
+import org.json.JSONObject;
+
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,9 +40,44 @@ public class Trip {
     private long coolBrake = Long.MIN_VALUE / 2, coolAccel = Long.MIN_VALUE / 2, coolCorner = Long.MIN_VALUE / 2;
     private long sCoolBrake = Long.MIN_VALUE / 2, sCoolAccel = Long.MIN_VALUE / 2, sCoolCorner = Long.MIN_VALUE / 2;
 
+    /** 最後に端末へ保存した時刻（途中で止まった計測を、保存できたところまでの結果にするため）。 */
+    public long savedAt;
+
     public Trip(String driver, long startWall) {
         this.driver = driver;
         this.startWall = startWall;
+    }
+
+    /** 途中経過を保存用に書き出す。 */
+    public synchronized JSONObject toJson(long now) {
+        JSONObject o = new JSONObject();
+        try {
+            o.put("driver", driver); o.put("startWall", startWall); o.put("savedAt", now);
+            o.put("dist", dist); o.put("max", max); o.put("overSec", overSec);
+            o.put("brake", brake); o.put("accel", accel); o.put("corner", corner);
+            o.put("sBrake", sBrake); o.put("sAccel", sAccel); o.put("sCorner", sCorner);
+            o.put("maxBrakeG", maxBrakeG); o.put("maxAccelG", maxAccelG); o.put("maxLatG", maxLatG);
+        } catch (Exception ignored) {
+        }
+        return o;
+    }
+
+    /** 保存した途中経過から計測を復元する。読めなければ null。 */
+    public static Trip fromJson(JSONObject o) {
+        try {
+            String d = o.optString("driver", "");
+            long st = o.optLong("startWall", 0);
+            if (d.isEmpty() || st <= 0) return null;
+            Trip t = new Trip(d, st);
+            t.savedAt = o.optLong("savedAt", st);
+            t.dist = o.optDouble("dist", 0); t.max = o.optDouble("max", 0); t.overSec = o.optDouble("overSec", 0);
+            t.brake = o.optInt("brake"); t.accel = o.optInt("accel"); t.corner = o.optInt("corner");
+            t.sBrake = o.optInt("sBrake"); t.sAccel = o.optInt("sAccel"); t.sCorner = o.optInt("sCorner");
+            t.maxBrakeG = o.optDouble("maxBrakeG", 0); t.maxAccelG = o.optDouble("maxAccelG", 0); t.maxLatG = o.optDouble("maxLatG", 0);
+            return t;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     static double haversine(double lat1, double lon1, double lat2, double lon2) {

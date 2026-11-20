@@ -49,6 +49,7 @@ public class MainActivity extends Activity {
     private TextView vTeam;
     private JSONObject lastResult;
     private LinearLayout alarmCard;
+    private TextView vNotif;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -72,7 +73,8 @@ public class MainActivity extends Activity {
         box.setPadding(p, p, p, p);
         sv.addView(box, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         setContentView(sv);
-        if (DriveService.trip != null && DriveService.running) showDrive(); else showIdle();
+        if (DriveService.trip != null && DriveService.running) showDrive();
+        else if (!resumeSaved()) showIdle();
         Uploader.sendPending(this, null);
         ReminderReceiver.schedule(this);
         if (Build.VERSION.SDK_INT >= 33
@@ -86,6 +88,7 @@ public class MainActivity extends Activity {
         super.onResume();
         ReminderReceiver.schedule(this);
         if (alarmCard != null && ReminderReceiver.exactAllowed(this)) alarmCard.setVisibility(View.GONE);
+        updateNotif();
         if ("drive".equals(screen)) {
             h.removeCallbacks(tick);
             h.post(tick);
@@ -96,6 +99,29 @@ public class MainActivity extends Activity {
     protected void onPause() {
         h.removeCallbacks(tick);
         super.onPause();
+    }
+
+    /** 途中で止まった計測があれば、続きから再開する（古いものは保存できたところまでを結果にする）。再開したら true。 */
+    private boolean resumeSaved() {
+        Trip s = DriveService.loadSaved(this);
+        if (s == null) return false;
+        if (DriveService.stale(s)) {
+            Uploader.add(this, DriveService.buildResult(s, s.savedAt > s.startWall ? s.savedAt : s.startWall));
+            DriveService.clearSaved(this);
+            DriveService.error = "前回の計測は途中で止まっていたため、保存できたところまでを結果として送信しました。";
+            return false;
+        }
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return false;
+        try {
+            DriveService.trip = s;
+            DriveService.error = null;
+            startForegroundService(new Intent(this, DriveService.class));
+            showDrive();
+            return true;
+        } catch (Exception e) {
+            DriveService.trip = null;
+            return false;
+        }
     }
 
     // ---------- 部品 ----------
@@ -193,6 +219,7 @@ public class MainActivity extends Activity {
         msg = tv("", 14, false, BAD);
         msg.setVisibility(View.GONE);
         add(c, msg, 8);
+        if (nameMiss()) add(c, tv(NAME_WARN, 14, true, WARN), 8);
         if (DriveService.error != null) {
             msg.setText(DriveService.error);
             msg.setVisibility(View.VISIBLE);
@@ -223,7 +250,85 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.12　毎日8:30と、未使用の日の13:00にお知らせを通知します", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.13", 12, false, MUTED), 12);
+
+        notifCard();
+    }
+
+    private static final String NAME_WARN = "入力した名前が名簿に見つかりません。漢字やフルネームかどうかを事務に確認してください（計測と送信はこのままできます）。";
+
+    private boolean nameMiss() {
+        String d = prefs.getString("driver", "");
+        return !d.isEmpty() && d.equals(prefs.getString("nameMiss", ""));
+    }
+
+    /** 名前が名簿にあるかを裏で確かめる（名前を変えたときだけ）。 */
+    private void checkName(final String name) {
+        if (name.equals(prefs.getString("nameChecked", ""))) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Boolean hit = Uploader.checkName(name);
+                if (hit == null) return;
+                prefs.edit().putString("nameChecked", name).putString("nameMiss", hit ? "" : name).apply();
+            }
+        }).start();
+    }
+
+    // ---------- 通知の状態と通知テスト ----------
+    private void notifCard() {
+        LinearLayout c = card();
+        c.addView(tv("お知らせ（通知）の状態", 14, true, MUTED));
+        vNotif = tv("", 14, false, INK);
+        add(c, vNotif, 8);
+        add(c, tv("毎日8:30と、未使用の日の13:00にお知らせします。届かないときは、下の「通知テスト」を押して、すぐの1通と1分後の1通が届くか確かめてください。", 12, false, MUTED), 6);
+        add(c, btn("通知テスト", Color.WHITE, ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View x) {
+                ReminderReceiver.test(MainActivity.this);
+            }
+        }), 10);
+        add(c, btn("通知の設定を開く", Color.WHITE, ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View x) {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, getPackageName()));
+                } catch (Exception ignored) {
+                }
+            }
+        }), 8);
+        add(c, btn("電池の制限を解除する", Color.WHITE, ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View x) {
+                try {
+                    startActivity(new Intent(android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            android.net.Uri.parse("package:" + getPackageName())));
+                } catch (Exception e) {
+                    try {
+                        startActivity(new Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS));
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }), 8);
+        updateNotif();
+    }
+
+    private void updateNotif() {
+        if (vNotif == null || !"idle".equals(screen)) return;
+        boolean on = true, batt = false;
+        try {
+            on = ((android.app.NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE)).areNotificationsEnabled();
+            batt = ((android.os.PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName());
+        } catch (Exception ignored) {
+        }
+        long next = prefs.getLong("remNext1", 0), fired = prefs.getLong("remFired", 0);
+        vNotif.setText("通知の許可　" + (on ? "あり" : "なし（「通知の設定を開く」でオンにしてください）")
+                + "\n時刻どおりの通知　" + (ReminderReceiver.exactAllowed(this) ? "できる" : "できない（最大10分遅れます）")
+                + "\n電池の制限　" + (batt ? "なし" : "あり（「電池の制限を解除する」を押してください）")
+                + "\n次の8:30のお知らせ　" + (next > 0 ? fmtDate(next) : "未予約")
+                + "\n最後にお知らせを出した日時　" + (fired > 0 ? fmtDate(fired) : "まだありません"));
     }
 
     // ---------- 時刻どおりの通知の許可 ----------
@@ -362,6 +467,7 @@ public class MainActivity extends Activity {
             return;
         }
         prefs.edit().putString("driver", name).apply();
+        checkName(name);
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             List<String> need = new ArrayList<>();
             need.add(Manifest.permission.ACCESS_FINE_LOCATION);
@@ -483,6 +589,7 @@ public class MainActivity extends Activity {
         Trip t = DriveService.trip;
         stopService(new Intent(this, DriveService.class));
         DriveService.trip = null;
+        DriveService.clearSaved(this);
         h.removeCallbacks(tick);
         if (t == null) {
             showIdle();
@@ -514,6 +621,7 @@ public class MainActivity extends Activity {
                 : tips.isEmpty() ? "急な操作も速度超過もありませんでした。この運転を続けてください。"
                 : "次回は下の" + tips.size() + "点を意識すると点数が上がります。";
         add(c, tv(sum, 15, false, INK), 12);
+        if (nameMiss()) add(c, tv(NAME_WARN, 14, true, WARN), 8);
 
         if (!tips.isEmpty()) {
             LinearLayout tc = card();

@@ -79,6 +79,7 @@ public class ReminderReceiver extends BroadcastReceiver {
         } catch (Exception ignored) {
         }
         schedule(c);
+        AutoStart.register(c);
     }
 
     /** 次の8:30と13:00（日本時間）に鳴らす予約。鳴るたびに次回分を予約し直す。 */

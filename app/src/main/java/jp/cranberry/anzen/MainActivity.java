@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final int REQ = 11, REQ_NOTIF = 12, CELEBRATE_OVER = 95, CAUTION_BELOW = 70;
+    private static final int REQ = 11, REQ_NOTIF = 12, REQ_AUTO = 13, REQ_AUTO_BG = 14, CELEBRATE_OVER = 95, CAUTION_BELOW = 70;
     private static final int INK = 0xFF152033, MUTED = 0xFF5D6A7E, BG = 0xFFEEF1F5, ACCENT = 0xFF1B5FC4,
             GOOD = 0xFF1A8A54, WARN = 0xFFB97400, BAD = 0xFFC9342B;
 
@@ -49,7 +49,7 @@ public class MainActivity extends Activity {
     private TextView vTeam;
     private JSONObject lastResult;
     private LinearLayout alarmCard;
-    private TextView vNotif;
+    private TextView vNotif, vAuto;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -89,6 +89,8 @@ public class MainActivity extends Activity {
         ReminderReceiver.schedule(this);
         if (alarmCard != null && ReminderReceiver.exactAllowed(this)) alarmCard.setVisibility(View.GONE);
         updateNotif();
+        updateAuto();
+        AutoStart.register(this);
         if ("drive".equals(screen)) {
             h.removeCallbacks(tick);
             h.post(tick);
@@ -225,7 +227,7 @@ public class MainActivity extends Activity {
             msg.setVisibility(View.VISIBLE);
             DriveService.error = null;
         }
-        add(c, tv("朝、最初の出発前に「運転開始」を1回押してください。開始後はGoogleマップなど他のアプリを使っても、画面を消しても、訪問中も計測は続きます。業務が終わったら、このアプリに戻って「運転終了」を押してください。押し忘れた場合は17:20に自動で終了し、結果を送信します。走行中は操作しないでください。", 13, false, MUTED), 10);
+        add(c, tv("朝、最初の出発前に「運転開始」を1回押してください。開始後はGoogleマップなど他のアプリを使っても、画面を消しても、訪問中も計測は続きます。業務が終わったら、このアプリに戻って「運転終了」を押してください。押し忘れた場合は17:20に自動で終了し、結果を送信します（17:20以降に始めた計測は18:10に終了します）。走行中は操作しないでください。", 13, false, MUTED), 10);
 
         LinearLayout s = card();
         s.addView(tv("採点方法（100点から減点）", 14, true, MUTED));
@@ -250,8 +252,9 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.14", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.15", 12, false, MUTED), 12);
 
+        autoCard();
         notifCard();
     }
 
@@ -273,6 +276,61 @@ public class MainActivity extends Activity {
                 prefs.edit().putString("nameChecked", name).putString("nameMiss", hit ? "" : name).apply();
             }
         }).start();
+    }
+
+    // ---------- 自動開始 ----------
+    private void autoCard() {
+        LinearLayout c = card();
+        c.addView(tv("自動開始（8:00〜18:00）", 14, true, MUTED));
+        vAuto = tv("", 14, false, INK);
+        add(c, vAuto, 8);
+        add(c, tv("車で動き出したことをスマホが検知すると、8:00〜18:00の間は自動で計測を始めます。検知には1〜2分かかるため、出発前に「運転開始」を押すほうが確実です（併用できます）。", 12, false, MUTED), 6);
+        add(c, btn("自動開始を有効にする", Color.WHITE, ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View x) {
+                enableAuto();
+            }
+        }), 10);
+        updateAuto();
+    }
+
+    /** 自動開始に必要な許可を順番に求める（身体活動 → 位置情報 → 位置情報を「常に許可」）。 */
+    private void enableAuto() {
+        String name = nameEdit != null ? nameEdit.getText().toString().trim() : prefs.getString("driver", "");
+        if (name.isEmpty()) {
+            if (msg != null) fail("先にスタッフ名を入力してください。");
+            return;
+        }
+        prefs.edit().putString("driver", name).apply();
+        checkName(name);
+        List<String> need = new ArrayList<>();
+        if (!AutoStart.activityAllowed(this)) need.add(Manifest.permission.ACTIVITY_RECOGNITION);
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            need.add(Manifest.permission.ACCESS_FINE_LOCATION);
+            need.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+        }
+        if (!need.isEmpty()) {
+            requestPermissions(need.toArray(new String[0]), REQ_AUTO);
+            return;
+        }
+        if (!AutoStart.backgroundAllowed(this)) {
+            android.widget.Toast.makeText(this, "次の画面で、位置情報を「常に許可」にしてください", android.widget.Toast.LENGTH_LONG).show();
+            requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, REQ_AUTO_BG);
+            return;
+        }
+        AutoStart.register(this);
+        updateAuto();
+    }
+
+    private void updateAuto() {
+        if (vAuto == null || !"idle".equals(screen)) return;
+        long at = prefs.getLong("autoAt", 0);
+        String reg = prefs.getString("autoReg", "");
+        vAuto.setText("状態　" + (AutoStart.ready(this) ? "有効" : "無効（下のボタンを押してください）")
+                + "\n身体活動の許可　" + (AutoStart.activityAllowed(this) ? "あり" : "なし")
+                + "\n位置情報　" + (AutoStart.backgroundAllowed(this) ? "常に許可" : "「常に許可」になっていません")
+                + "\n検知の登録　" + ("ok".equals(reg) ? "済み" : reg.isEmpty() ? "未登録" : "失敗（" + reg + "）")
+                + "\n最後に車の動きを検知した日時　" + (at > 0 ? fmtDate(at) + "　" + prefs.getString("autoWhat", "") : "まだありません"));
     }
 
     // ---------- 通知の状態と通知テスト ----------
@@ -484,7 +542,7 @@ public class MainActivity extends Activity {
         DriveService.trip = new Trip(name, System.currentTimeMillis());
         DriveService.error = null;
         ReminderReceiver.markStarted(this);
-        String warn = caution();
+        String warn = caution(this);
         if (warn != null) ReminderReceiver.notice(this, "気をつけること：" + warn.replace("\n", " "));
         startForegroundService(new Intent(this, DriveService.class));
         showDrive();
@@ -492,6 +550,17 @@ public class MainActivity extends Activity {
 
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        if (code == REQ_AUTO) {
+            // 1段目（身体活動・位置情報）が通ったら、続けて「常に許可」を求める
+            if (AutoStart.activityAllowed(this) && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) enableAuto();
+            updateAuto();
+            return;
+        }
+        if (code == REQ_AUTO_BG) {
+            AutoStart.register(this);
+            updateAuto();
+            return;
+        }
         if (code != REQ) return;
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             startDrive();
@@ -504,8 +573,8 @@ public class MainActivity extends Activity {
      * 直近の運転（2km以上の記録を新しい順に3回まで）の平均が70点未満のとき、
      * いちばん減点の大きい項目に合わせた注意文を返す。該当しなければ null。
      */
-    private String caution() {
-        JSONArray a = Uploader.load(this);
+    static String caution(Context c) {
+        JSONArray a = Uploader.load(c);
         int n = 0, sum = 0, b = 0, ac = 0, co = 0;
         double over = 0;
         for (int i = 0; i < a.length() && n < 3; i++) {
@@ -537,7 +606,7 @@ public class MainActivity extends Activity {
     private void showDrive() {
         screen = "drive";
         header();
-        String warn = caution();
+        String warn = caution(this);
         if (warn != null) {
             LinearLayout wc = card();
             wc.addView(tv("今日の運転で気をつけること", 15, true, BAD));

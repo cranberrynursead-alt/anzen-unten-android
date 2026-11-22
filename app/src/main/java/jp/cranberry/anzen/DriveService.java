@@ -66,16 +66,28 @@ public class DriveService extends Service implements LocationListener {
         }
     };
 
-    /** 17:20（日本時間）までの残り時間。すでに過ぎていれば6時間後に自動終了する。 */
-    private static long autoDelayMs() {
+    /**
+     * この計測を自動で終える時刻。17:20より前に始めたものは17:20、
+     * 17:20〜18:10に始めたもの（自動開始は18:00まで）は18:10、それ以降は開始の6時間後。
+     */
+    static long endFor(long startWall) {
         Calendar t = Calendar.getInstance(TimeZone.getTimeZone("Asia/Tokyo"));
-        long now = t.getTimeInMillis();
-        t.set(Calendar.HOUR_OF_DAY, 17);
-        t.set(Calendar.MINUTE, 20);
+        t.setTimeInMillis(startWall);
         t.set(Calendar.SECOND, 0);
         t.set(Calendar.MILLISECOND, 0);
-        long d = t.getTimeInMillis() - now;
-        return d > 60000L ? d : 6 * 60 * 60 * 1000L;
+        t.set(Calendar.HOUR_OF_DAY, 17);
+        t.set(Calendar.MINUTE, 20);
+        if (startWall < t.getTimeInMillis()) return t.getTimeInMillis();
+        t.set(Calendar.HOUR_OF_DAY, 18);
+        t.set(Calendar.MINUTE, 10);
+        if (startWall < t.getTimeInMillis()) return t.getTimeInMillis();
+        return startWall + 6 * 60 * 60 * 1000L;
+    }
+
+    private static long autoDelayMs() {
+        Trip t = trip;
+        long end = endFor(t != null ? t.startWall : System.currentTimeMillis());
+        return Math.max(1000L, end - System.currentTimeMillis());
     }
 
     // ---- 途中経過の保存（アプリが強制終了されても、続きから再開できるようにする）----
@@ -107,15 +119,13 @@ public class DriveService extends Service implements LocationListener {
         }
     }
 
-    /** 再開せずに締めるべき計測か（前日以前のもの、または17:20の自動終了時刻を過ぎたもの）。 */
+    /** 再開せずに締めるべき計測か（前日以前のもの、または自動終了の時刻を過ぎたもの）。 */
     static boolean stale(Trip t) {
         TimeZone tz = TimeZone.getTimeZone("Asia/Tokyo");
         Calendar now = Calendar.getInstance(tz), st = Calendar.getInstance(tz);
         st.setTimeInMillis(t.startWall);
         if (now.get(Calendar.YEAR) != st.get(Calendar.YEAR) || now.get(Calendar.DAY_OF_YEAR) != st.get(Calendar.DAY_OF_YEAR)) return true;
-        Calendar end = Calendar.getInstance(tz);
-        end.set(Calendar.HOUR_OF_DAY, 17); end.set(Calendar.MINUTE, 20); end.set(Calendar.SECOND, 0); end.set(Calendar.MILLISECOND, 0);
-        return now.getTimeInMillis() >= end.getTimeInMillis() && t.startWall < end.getTimeInMillis();
+        return now.getTimeInMillis() >= endFor(t.startWall);
     }
 
     /** 走行結果を作る（手動終了と自動終了の両方で使う）。 */

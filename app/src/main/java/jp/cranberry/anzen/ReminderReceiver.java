@@ -125,6 +125,14 @@ public class ReminderReceiver extends BroadcastReceiver {
         }
     }
 
+    /** 運転開始時の注意喚起を通知でも出す（すぐ地図アプリに切り替えても目に入るように）。 */
+    static void notice(Context c, String text) {
+        try {
+            show(c, 7, text);
+        } catch (Exception ignored) {
+        }
+    }
+
     private static void show(Context c, int id, String text) {
         NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
         nm.createNotificationChannel(new NotificationChannel(CH, "運転開始のお知らせ", NotificationManager.IMPORTANCE_HIGH));

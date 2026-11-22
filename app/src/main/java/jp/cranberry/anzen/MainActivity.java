@@ -35,7 +35,7 @@ import java.util.List;
 import java.util.Locale;
 
 public class MainActivity extends Activity {
-    private static final int REQ = 11, REQ_NOTIF = 12, CELEBRATE_OVER = 95;
+    private static final int REQ = 11, REQ_NOTIF = 12, CELEBRATE_OVER = 95, CAUTION_BELOW = 70;
     private static final int INK = 0xFF152033, MUTED = 0xFF5D6A7E, BG = 0xFFEEF1F5, ACCENT = 0xFF1B5FC4,
             GOOD = 0xFF1A8A54, WARN = 0xFFB97400, BAD = 0xFFC9342B;
 
@@ -250,7 +250,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.13", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.14", 12, false, MUTED), 12);
 
         notifCard();
     }
@@ -484,6 +484,8 @@ public class MainActivity extends Activity {
         DriveService.trip = new Trip(name, System.currentTimeMillis());
         DriveService.error = null;
         ReminderReceiver.markStarted(this);
+        String warn = caution();
+        if (warn != null) ReminderReceiver.notice(this, "気をつけること：" + warn.replace("\n", " "));
         startForegroundService(new Intent(this, DriveService.class));
         showDrive();
     }
@@ -498,10 +500,49 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * 直近の運転（2km以上の記録を新しい順に3回まで）の平均が70点未満のとき、
+     * いちばん減点の大きい項目に合わせた注意文を返す。該当しなければ null。
+     */
+    private String caution() {
+        JSONArray a = Uploader.load(this);
+        int n = 0, sum = 0, b = 0, ac = 0, co = 0;
+        double over = 0;
+        for (int i = 0; i < a.length() && n < 3; i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null || "skip".equals(o.optString("status")) || o.optDouble("dist") < 2000) continue;
+            n++;
+            sum += o.optInt("score");
+            b += o.optInt("brake");
+            ac += o.optInt("accel");
+            co += o.optInt("corner");
+            over += o.optDouble("overSec");
+        }
+        if (n == 0) return null;
+        int avg = Math.round(sum / (float) n);
+        if (avg >= CAUTION_BELOW) return null;
+        int[] pen = {b * Trip.PEN_BRAKE, ac * Trip.PEN_ACCEL, co * Trip.PEN_CORNER, (int) (over / Trip.OVER_STEP)};
+        int k = 0;
+        for (int i = 1; i < 4; i++) if (pen[i] > pen[k]) k = i;
+        String[] what = {"急ブレーキ（" + b + "回）", "急加速（" + ac + "回）", "急ハンドル（" + co + "回）", "60km/h超過（" + Math.round(over) + "秒）"};
+        String[] how = {
+                "車間距離を長めにとり、信号や渋滞が見えたら早めにアクセルを戻してください。",
+                "発進は「5秒かけて時速20km」を目安に、アクセルをじわっと踏んでください。",
+                "カーブや右左折は手前の直線で十分に減速してください。",
+                "時間に余裕を持って出発し、速度計をこまめに確認してください。"};
+        return "直近" + n + "回の平均は" + avg + "点です。特に" + what[k] + "が多くなっています。\n" + how[k];
+    }
+
     // ---------- 走行中 ----------
     private void showDrive() {
         screen = "drive";
         header();
+        String warn = caution();
+        if (warn != null) {
+            LinearLayout wc = card();
+            wc.addView(tv("今日の運転で気をつけること", 15, true, BAD));
+            add(wc, tv(warn, 15, false, INK), 6);
+        }
         vGps = tv("GPS 測位中", 13, false, MUTED);
         box.addView(vGps);
         LinearLayout c = card();

@@ -157,6 +157,8 @@ public class DriveService extends Service implements LocationListener {
                 r.put("maxBrakeG", Math.round(t.maxBrakeG * 100) / 100.0);
                 r.put("maxAccelG", Math.round(t.maxAccelG * 100) / 100.0);
                 r.put("maxLatG", Math.round(t.maxLatG * 100) / 100.0);
+                r.put("vc", Trip.APP_VC);
+                r.put("hwSec", Math.round(t.hwSec));
                 r.put("status", t.dist >= 100 ? "pending" : "skip");
             }
         } catch (Exception ignored) {

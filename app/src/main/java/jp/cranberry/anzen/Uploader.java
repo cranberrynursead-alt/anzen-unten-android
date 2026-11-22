@@ -89,7 +89,7 @@ public class Uploader {
                         JSONObject o = a.optJSONObject(i);
                         if (o == null || !"pending".equals(o.optString("status"))) continue;
                         JSONObject b = new JSONObject();
-                        for (String k : new String[]{"id", "date", "driver", "limit", "dist", "dur", "max", "brake", "accel", "corner", "overSec", "score", "sBrake", "sAccel", "sCorner", "maxBrakeG", "maxAccelG", "maxLatG"}) {
+                        for (String k : new String[]{"id", "date", "driver", "limit", "dist", "dur", "max", "brake", "accel", "corner", "overSec", "score", "vc", "hwSec", "sBrake", "sAccel", "sCorner", "maxBrakeG", "maxAccelG", "maxLatG"}) {
                             b.put(k, o.opt(k));
                         }
                         if (post(b.toString())) mark(c, o.optString("id"), "sent");

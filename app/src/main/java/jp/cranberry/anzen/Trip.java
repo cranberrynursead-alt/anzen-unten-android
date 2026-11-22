@@ -19,12 +19,23 @@ public class Trip {
     /** 速度超過は何秒ごとに1点減点するか。減点を何kmあたりに直すか。 */
     public static final int OVER_STEP = 5, PER_KM = 15;
     public static final int LIMIT = 60;
+    /** アプリの版（app/build.gradle の versionCode と必ず同じにする）。記録に付けて送る。 */
+    public static final int APP_VC = 17;
+    /**
+     * 高速道路・自動車専用道路の扱い：時速80km以上が30秒続いたら高速とみなし、上限を100km/hにする。
+     * 60km/h未満が30秒続いたら一般道に戻す。高速とみなすまでの助走で数えた超過秒は取り消す。
+     */
+    static final double HW_IN = 80, HW_OUT = 60, HW_HOLD = 30, HW_LIMIT = 100;
+    /** 1秒あたりの速度変化がこれ以上の測位は、GPSの飛びとして捨てる（車では出ない値）。 */
+    static final double GLITCH = 1.2 * G;
     public static final int PEN_BRAKE = 5, PEN_ACCEL = 3, PEN_CORNER = 3;
 
     public final long startWall;
     public final String driver;
     public long startT = -1, endT = -1;
-    public double dist, max, overSec, curKmh;
+    public double dist, max, overSec, curKmh, hwSec;
+    public boolean hw;
+    private double fastSec, slowSec, streakOver;
     public int brake, accel, corner;
     public int sBrake, sAccel, sCorner;
     public double maxBrakeG, maxAccelG, maxLatG;
@@ -53,7 +64,7 @@ public class Trip {
         JSONObject o = new JSONObject();
         try {
             o.put("driver", driver); o.put("startWall", startWall); o.put("savedAt", now);
-            o.put("dist", dist); o.put("max", max); o.put("overSec", overSec);
+            o.put("dist", dist); o.put("max", max); o.put("overSec", overSec); o.put("hwSec", hwSec);
             o.put("brake", brake); o.put("accel", accel); o.put("corner", corner);
             o.put("sBrake", sBrake); o.put("sAccel", sAccel); o.put("sCorner", sCorner);
             o.put("maxBrakeG", maxBrakeG); o.put("maxAccelG", maxAccelG); o.put("maxLatG", maxLatG);
@@ -70,7 +81,7 @@ public class Trip {
             if (d.isEmpty() || st <= 0) return null;
             Trip t = new Trip(d, st);
             t.savedAt = o.optLong("savedAt", st);
-            t.dist = o.optDouble("dist", 0); t.max = o.optDouble("max", 0); t.overSec = o.optDouble("overSec", 0);
+            t.dist = o.optDouble("dist", 0); t.max = o.optDouble("max", 0); t.overSec = o.optDouble("overSec", 0); t.hwSec = o.optDouble("hwSec", 0);
             t.brake = o.optInt("brake"); t.accel = o.optInt("accel"); t.corner = o.optInt("corner");
             t.sBrake = o.optInt("sBrake"); t.sAccel = o.optInt("sAccel"); t.sCorner = o.optInt("sCorner");
             t.maxBrakeG = o.optDouble("maxBrakeG", 0); t.maxAccelG = o.optDouble("maxAccelG", 0); t.maxLatG = o.optDouble("maxLatG", 0);
@@ -112,6 +123,8 @@ public class Trip {
         double d = haversine(lastLat, lastLon, lat, lon);
         double v = hasSpeed ? speed : d / dt;
         if (v > 70) return;
+        // GPSの飛び（最高148km/hのような異常値）を捨てる。3秒以上あけば次の測位は受け入れる
+        if (dt <= 3 && Math.abs(v - lastVs) / dt >= GLITCH) return;
         boolean hasHd = hasBearing;
         float hd = bearingDeg;
         if (!hasHd && d > 3) { hasHd = true; hd = bearing(lastLat, lastLon, lat, lon); }
@@ -146,7 +159,24 @@ public class Trip {
                     if (latAcc >= S_CORNER && t - sCoolCorner >= 4000) { sCoolCorner = t; sCorner++; }
                 }
             }
-            if (vs * 3.6 > LIMIT) { overSec += dt; over = true; } else over = false;
+            double kmh = vs * 3.6;
+            if (kmh >= HW_IN) fastSec += dt; else fastSec = 0;
+            if (kmh < HW_OUT) slowSec += dt; else slowSec = 0;
+            if (!hw && fastSec >= HW_HOLD) {
+                hw = true;
+                overSec = Math.max(0, overSec - streakOver);
+                streakOver = 0;
+            }
+            if (hw && slowSec >= HW_HOLD) hw = false;
+            if (hw) hwSec += dt;
+            if (kmh > (hw ? HW_LIMIT : LIMIT)) {
+                overSec += dt;
+                if (!hw) streakOver += dt;
+                over = true;
+            } else {
+                over = false;
+                if (kmh <= LIMIT) streakOver = 0;
+            }
         }
         if (vs > max) max = vs;
         curKmh = vs * 3.6;

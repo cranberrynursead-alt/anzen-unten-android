@@ -231,7 +231,7 @@ public class MainActivity extends Activity {
 
         LinearLayout s = card();
         s.addView(tv("採点方法（100点から減点）", 14, true, MUTED));
-        add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／5秒\n\n1日の合計を、走行距離15kmあたりの減点に直して採点します（15km未満の日は減点をそのまま使います）。\n時速15km未満での急加速・急ブレーキは、誤検知を防ぐため数えません。", 15, false, INK), 8);
+        add(s, tv("急ブレーキ　−5点／回\n急加速　−3点／回\n急ハンドル　−3点／回\n60km/hを超えて走行　−1点／5秒\n\n1日の合計を、走行距離15kmあたりの減点に直して採点します（15km未満の日は減点をそのまま使います）。\n時速15km未満での急加速・急ブレーキは、誤検知を防ぐため数えません。\n時速80km以上が30秒続いた区間は高速道路とみなし、上限を100km/hとして採点します。", 15, false, INK), 8);
 
         myCard();
         teamCard();
@@ -252,7 +252,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.15", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.16", 12, false, MUTED), 12);
 
         autoCard();
         notifCard();
@@ -422,7 +422,8 @@ public class MainActivity extends Activity {
                     @Override
                     public void run() {
                         if (!"idle".equals(screen) || isFinishing()) return;
-                        c.addView(tv("新しいバージョン " + v[1] + " があります", 16, true, ACCENT));
+                        c.addView(tv("新しいバージョン " + v[1] + " があります。必ず更新してください", 16, true, BAD));
+                        add(c, tv("古いバージョンの記録は参考値の扱いになり、全体の平均や月次集計に入りません。", 13, true, BAD), 6);
                         add(c, tv("「更新する」を押し、表示された画面で「更新」を押してください。記録や名前はそのまま残ります。計測していないときに更新してください。", 13, false, MUTED), 6);
                         add(c, btn("更新する", ACCENT, Color.WHITE, new View.OnClickListener() {
                             @Override
@@ -672,7 +673,7 @@ public class MainActivity extends Activity {
             vFlash.setTextColor(Color.WHITE);
             vFlash.setBackgroundColor(BAD);
         } else if (isOver) {
-            vFlash.setText("60km/hを超えています");
+            vFlash.setText("速度超過です");
             vFlash.setTextColor(Color.WHITE);
             vFlash.setBackgroundColor(BAD);
         } else {
@@ -809,7 +810,7 @@ public class MainActivity extends Activity {
         String st = Uploader.status(this, lastResult.optString("id"));
         boolean again = false;
         String s;
-        if ("sent".equals(st)) s = "結果を送信しました。17:30に管理者へ届きます。";
+        if ("sent".equals(st)) s = "結果を送信しました。18:15に管理者へ届きます。";
         else if ("skip".equals(st)) s = "走行距離が100m未満のため送信しません。";
         else if (Uploader.isSending()) s = "結果を送信中です。";
         else {

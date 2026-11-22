@@ -6,8 +6,8 @@ android {
         applicationId 'jp.cranberry.anzen'
         minSdk 26
         targetSdk 34
-        versionCode 15
-        versionName '1.14'
+        versionCode 16
+        versionName '1.15'
     }
     signingConfigs {
         shared {
@@ -26,4 +26,8 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
     lint { abortOnError false; checkReleaseBuilds false }
+}
+dependencies {
+    // 車で動き出したことの検知（自動開始）に使う
+    implementation 'com.google.android.gms:play-services-location:21.3.0'
 }

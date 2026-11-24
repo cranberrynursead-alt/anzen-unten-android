@@ -137,6 +137,60 @@ public class Uploader {
         return null;
     }
 
+    /**
+     * お知らせが届かない原因を調べるため、端末の状態（通知・予約・省電力の設定）を集計先に送る。
+     * 位置や走行の内容は含めない。minGapMs より短い間隔では送らない。
+     */
+    public static void diag(Context ctx, long minGapMs) {
+        final Context c = ctx.getApplicationContext();
+        final SharedPreferences p = c.getSharedPreferences(PREF, Context.MODE_PRIVATE);
+        long now = System.currentTimeMillis();
+        if (now - p.getLong("diagAt", 0) < minGapMs) return;
+        String name = p.getString("driver", "");
+        if (name.isEmpty()) return;
+        p.edit().putLong("diagAt", now).apply();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("M/d H:mm", java.util.Locale.JAPAN);
+                    f.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Tokyo"));
+                    android.app.NotificationManager nm = (android.app.NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+                    android.app.NotificationChannel ch = nm.getNotificationChannel(ReminderReceiver.CH);
+                    String bucket = "";
+                    if (android.os.Build.VERSION.SDK_INT >= 28) {
+                        int b = ((android.app.usage.UsageStatsManager) c.getSystemService(Context.USAGE_STATS_SERVICE)).getAppStandbyBucket();
+                        bucket = b <= 10 ? "使用中" : b <= 20 ? "頻繁" : b <= 30 ? "時々" : b <= 40 ? "まれ" : "制限";
+                    }
+                    JSONObject o = new JSONObject();
+                    o.put("type", "diag");
+                    o.put("driver", p.getString("driver", ""));
+                    o.put("model", android.os.Build.MANUFACTURER + " " + android.os.Build.MODEL);
+                    o.put("sdk", android.os.Build.VERSION.SDK_INT);
+                    o.put("vc", Trip.APP_VC);
+                    o.put("notif", nm.areNotificationsEnabled() ? "あり" : "なし");
+                    o.put("channel", ch == null ? "未作成" : ch.getImportance() == 0 ? "オフ" : String.valueOf(ch.getImportance()));
+                    o.put("exact", ReminderReceiver.exactAllowed(c) ? "可" : "不可");
+                    o.put("battery", ((android.os.PowerManager) c.getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(c.getPackageName()) ? "制限なし" : "制限あり");
+                    o.put("bucket", bucket);
+                    o.put("next", fmt(f, p.getLong("remNext1", 0)));
+                    o.put("alarm", fmt(f, p.getLong("alarmAt", 0)));
+                    o.put("job", fmt(f, p.getLong("jobAt", 0)));
+                    o.put("fired", fmt(f, p.getLong("remFired", 0)));
+                    o.put("test", fmt(f, p.getLong("testAt", 0)) + " / " + fmt(f, p.getLong("testFired", 0)));
+                    o.put("auto", p.getString("autoReg", "") + " " + fmt(f, p.getLong("autoAt", 0)) + " " + p.getString("autoWhat", ""));
+                    o.put("bg", AutoStart.backgroundAllowed(c) ? "常に許可" : "常に許可でない");
+                    post(o.toString());
+                } catch (Exception ignored) {
+                }
+            }
+        }).start();
+    }
+
+    private static String fmt(java.text.SimpleDateFormat f, long ms) {
+        return ms > 0 ? f.format(new java.util.Date(ms)) : "なし";
+    }
+
     /** 名前が名簿にあるか。確認できなければ null（名簿の中身は取得しない）。 */
     public static Boolean checkName(String name) {
         try {

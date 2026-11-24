@@ -87,6 +87,8 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         ReminderReceiver.schedule(this);
+        ReminderReceiver.due(this);
+        Uploader.diag(this, 60 * 60 * 1000L);
         if (alarmCard != null && ReminderReceiver.exactAllowed(this)) alarmCard.setVisibility(View.GONE);
         updateNotif();
         updateAuto();
@@ -252,7 +254,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.16", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.17", 12, false, MUTED), 12);
 
         autoCard();
         notifCard();
@@ -381,12 +383,13 @@ public class MainActivity extends Activity {
             batt = ((android.os.PowerManager) getSystemService(Context.POWER_SERVICE)).isIgnoringBatteryOptimizations(getPackageName());
         } catch (Exception ignored) {
         }
-        long next = prefs.getLong("remNext1", 0), fired = prefs.getLong("remFired", 0);
+        long next = prefs.getLong("remNext1", 0), fired = prefs.getLong("remFired", 0), job = prefs.getLong("jobAt", 0);
         vNotif.setText("通知の許可　" + (on ? "あり" : "なし（「通知の設定を開く」でオンにしてください）")
                 + "\n時刻どおりの通知　" + (ReminderReceiver.exactAllowed(this) ? "できる" : "できない（最大10分遅れます）")
                 + "\n電池の制限　" + (batt ? "なし" : "あり（「電池の制限を解除する」を押してください）")
                 + "\n次の8:30のお知らせ　" + (next > 0 ? fmtDate(next) : "未予約")
-                + "\n最後にお知らせを出した日時　" + (fired > 0 ? fmtDate(fired) : "まだありません"));
+                + "\n最後にお知らせを出した日時　" + (fired > 0 ? fmtDate(fired) : "まだありません")
+                + "\n最後の定期確認　" + (job > 0 ? fmtDate(job) : "まだありません"));
     }
 
     // ---------- 時刻どおりの通知の許可 ----------
@@ -575,6 +578,12 @@ public class MainActivity extends Activity {
      * いちばん減点の大きい項目に合わせた注意文を返す。該当しなければ null。
      */
     static String caution(Context c) {
+        String[] p = cautionParts(c);
+        return p == null ? null : "直近" + p[0] + "回の平均は" + p[1] + "点です。特に" + p[2] + "が多くなっています。\n" + p[3];
+    }
+
+    /** 注意喚起の中身 {回数, 平均点, 多い項目, 改善のしかた}。該当しなければ null。 */
+    static String[] cautionParts(Context c) {
         JSONArray a = Uploader.load(c);
         int n = 0, sum = 0, b = 0, ac = 0, co = 0;
         double over = 0;
@@ -600,7 +609,7 @@ public class MainActivity extends Activity {
                 "発進は「5秒かけて時速20km」を目安に、アクセルをじわっと踏んでください。",
                 "カーブや右左折は手前の直線で十分に減速してください。",
                 "時間に余裕を持って出発し、速度計をこまめに確認してください。"};
-        return "直近" + n + "回の平均は" + avg + "点です。特に" + what[k] + "が多くなっています。\n" + how[k];
+        return new String[]{String.valueOf(n), String.valueOf(avg), what[k], how[k]};
     }
 
     // ---------- 走行中 ----------
@@ -644,6 +653,72 @@ public class MainActivity extends Activity {
         }));
         h.removeCallbacks(tick);
         h.post(tick);
+        Trip cur = DriveService.trip;
+        if (cur != null && prefs.getLong("warnFor", 0) != cur.startWall) showWarn(cur.startWall);
+    }
+
+    /**
+     * 危険運転のスタッフ向けの全面赤の注意画面（A案）。「確認しました」を押すまで閉じられない。
+     * 1回の計測につき1回だけ出す（自動開始のあとにアプリを開いたときも出る）。
+     */
+    private void showWarn(final long tripStart) {
+        String[] p = cautionParts(this);
+        if (p == null || isFinishing()) return;
+        try {
+            final android.app.Dialog d = new android.app.Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+            d.setCancelable(false);
+            LinearLayout v = new LinearLayout(this);
+            v.setOrientation(LinearLayout.VERTICAL);
+            v.setBackgroundColor(BAD);
+            int pad = dp(24);
+            v.setPadding(pad, dp(40), pad, pad);
+            TextView icon = tv("⚠", 64, false, Color.WHITE);
+            icon.setGravity(Gravity.CENTER);
+            v.addView(icon);
+            TextView title = tv("運転に注意", 30, true, Color.WHITE);
+            title.setGravity(Gravity.CENTER);
+            v.addView(title);
+            TextView avg = tv("直近" + p[0] + "回の平均　" + p[1] + "点", 20, true, Color.WHITE);
+            avg.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            al.topMargin = dp(12);
+            v.addView(avg, al);
+            LinearLayout box = new LinearLayout(this);
+            box.setOrientation(LinearLayout.VERTICAL);
+            GradientDrawable g = new GradientDrawable();
+            g.setColor(0x2EFFFFFF);
+            g.setCornerRadius(dp(14));
+            box.setBackground(g);
+            box.setPadding(dp(16), dp(16), dp(16), dp(16));
+            box.addView(tv(p[2] + "が多くなっています", 18, true, Color.WHITE));
+            TextView how = tv(p[3], 17, false, Color.WHITE);
+            LinearLayout.LayoutParams hl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            hl.topMargin = dp(8);
+            box.addView(how, hl);
+            LinearLayout.LayoutParams bl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            bl.topMargin = dp(24);
+            v.addView(box, bl);
+            View space = new View(this);
+            v.addView(space, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+            Button ok = btn("確認しました", Color.WHITE, BAD, new View.OnClickListener() {
+                @Override
+                public void onClick(View x) {
+                    prefs.edit().putLong("warnFor", tripStart).apply();
+                    try {
+                        d.dismiss();
+                    } catch (Exception ignored) {
+                    }
+                }
+            });
+            v.addView(ok, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            ScrollView sv = new ScrollView(this);
+            sv.setFillViewport(true);
+            sv.setBackgroundColor(BAD);
+            sv.addView(v, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            d.setContentView(sv);
+            d.show();
+        } catch (Exception ignored) {
+        }
     }
 
     private void updateDrive() {

@@ -205,6 +205,7 @@ public class MainActivity extends Activity {
         screen = "idle";
         h.removeCallbacks(tick);
         header();
+        puddingBanner();
         updateCard();
         alarmCard();
         LinearLayout c = card();
@@ -238,7 +239,6 @@ public class MainActivity extends Activity {
 
         myCard();
         teamCard();
-        puddingCard();
 
         LinearLayout hc = card();
         hc.addView(tv("走行履歴", 14, true, MUTED));
@@ -256,7 +256,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.20", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.21", 12, false, MUTED), 12);
 
         autoCard();
         notifCard();
@@ -532,6 +532,11 @@ public class MainActivity extends Activity {
                     b.append("\n直近7日間　平均 ").append(avg).append("点（").append(w.optInt("n")).append("名）")
                             ;
                 }
+                JSONObject pd = s.optJSONObject("pudding");
+                if (pd != null) {
+                    if (pd.optBoolean("achieved")) b.append("\nお取り寄せボーナス達成ペース");
+                    else if (pd.has("gap")) b.append("\nお取り寄せボーナスまで　あと").append(pd.optString("gap")).append("点（目標").append(pd.optInt("target")).append("点）");
+                }
                 final String text = b.toString();
                 prefs.edit().putString("teamText", text).apply();
                 // 全体平均が95点を超えた集計日は、お祝い画面を1回だけ出す（計測中は出さない）
@@ -554,76 +559,82 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    // ---------- はにわプリン（チーム目標） ----------
-    private void puddingCard() {
-        LinearLayout c = card();
-        LinearLayout head = new LinearLayout(this);
-        head.setOrientation(LinearLayout.HORIZONTAL);
-        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+    // ---------- お取り寄せボーナス（はにわプリン）：1日1回、上にバナーで出す（A案） ----------
+    private void puddingBanner() {
+        final String today = new java.text.SimpleDateFormat("yyyyMMdd", Locale.JAPAN).format(new java.util.Date());
+        if (today.equals(prefs.getString("bannerDay", ""))) return;
+        final LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.HORIZONTAL);
+        c.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(0xFFFAEEDA);
+        g.setCornerRadius(dp(14));
+        c.setBackground(g);
+        c.setPadding(dp(12), dp(10), dp(8), dp(10));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        lp.bottomMargin = dp(14);
+        c.setVisibility(View.GONE);
+        box.addView(c, lp);
         android.widget.ImageView pic = new android.widget.ImageView(this);
         pic.setImageResource(R.drawable.ic_pudding);
-        head.addView(pic, new LinearLayout.LayoutParams(dp(64), dp(64)));
-        TextView ht = tv("お取り寄せボーナス（はにわプリン）", 16, true, INK);
-        ht.setPadding(dp(10), 0, 0, 0);
-        head.addView(ht);
-        c.addView(head);
-        final TextView v = tv(prefs.getString("puddingText", "チームの今月の平均を確認しています。"), 15, false, INK);
-        add(c, v, 8);
+        c.addView(pic, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        LinearLayout tx = new LinearLayout(this);
+        tx.setOrientation(LinearLayout.VERTICAL);
+        tx.setPadding(dp(10), 0, dp(4), 0);
+        final TextView t1 = tv("", 15, true, 0xFF633806);
+        final TextView t2 = tv("", 12, false, 0xFF854F0B);
+        tx.addView(t1);
+        tx.addView(t2);
+        c.addView(tx, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        TextView x = tv("×", 22, false, 0xFF854F0B);
+        x.setPadding(dp(10), dp(4), dp(10), dp(4));
+        x.setContentDescription("閉じる");
+        x.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                c.setVisibility(View.GONE);
+            }
+        });
+        c.addView(x);
         // 自分の今月の記録（端末内）
         String ym = new java.text.SimpleDateFormat("yyyyMM", Locale.JAPAN).format(new java.util.Date());
         JSONArray a = Uploader.load(this);
-        int n = 0, sum = 0;
+        int n = 0;
         for (int i = 0; i < a.length(); i++) {
             JSONObject o = a.optJSONObject(i);
             if (o == null || "skip".equals(o.optString("status"))) continue;
-            long d = o.optLong("date");
-            if (!ym.equals(new java.text.SimpleDateFormat("yyyyMM", Locale.JAPAN).format(new java.util.Date(d)))) continue;
-            n++;
-            sum += o.optInt("score");
+            if (ym.equals(new java.text.SimpleDateFormat("yyyyMM", Locale.JAPAN).format(new java.util.Date(o.optLong("date"))))) n++;
         }
-        final int myN = n, myAvg = n > 0 ? Math.round(sum / (float) n) : -1;
-        final TextView me = tv("", 14, false, INK);
-        add(c, me, 8);
+        final int myN = n;
         new Thread(new Runnable() {
             @Override
             public void run() {
                 JSONObject s = Uploader.fetchStats();
                 final JSONObject p = s != null ? s.optJSONObject("pudding") : null;
+                if (p == null) return;
                 h.post(new Runnable() {
                     @Override
                     public void run() {
-                        if (isFinishing()) return;
-                        int target = p != null ? p.optInt("target", 85) : 85;
-                        int need = p != null ? p.optInt("need", 10) : 10;
-                        // 勤務日数が少ないスタッフ（池田さん＝週2日）は必要回数を個別に設定（集計側の needs）
-                        JSONObject needs = p != null ? p.optJSONObject("needs") : null;
+                        if (isFinishing() || !"idle".equals(screen)) return;
+                        int target = p.optInt("target", 85), need = p.optInt("need", 10);
+                        JSONObject needs = p.optJSONObject("needs");
                         String myName = prefs.getString("driver", "");
-                        int myNeed = need;
-                        if (needs != null) {
+                        if (needs != null && !myName.isEmpty()) {
                             java.util.Iterator<String> it = needs.keys();
                             while (it.hasNext()) {
                                 String k = it.next();
-                                if (!myName.isEmpty() && (myName.contains(k) || k.contains(myName))) myNeed = needs.optInt(k, need);
+                                if (myName.contains(k) || k.contains(myName)) need = needs.optInt(k, need);
                             }
                         }
-                        int members = p != null ? p.optInt("members", 6) : 6;
-                        StringBuilder b = new StringBuilder();
-                        b.append("今月のチーム平均が").append(target).append("点以上で、全員にはにわプリンをお取り寄せ");
-                        if (p != null) {
-                            if (p.has("avg")) b.append("\n今月のチーム平均　").append(p.optString("avg")).append("点");
-                            else b.append("\n今月のチーム平均　まだ記録がありません");
-                            b.append("\n").append("必要回数を計測した人　").append(p.optInt("done")).append("／").append(members).append("人");
-                            b.append("\n").append(p.optBoolean("achieved") ? "お取り寄せボーナス達成ペースです"
-                                    : p.has("gap") ? "お取り寄せボーナスまで　あと" + p.optString("gap") + "点" : "");
-                            b.append("\n月末まで　").append(p.optInt("daysLeft")).append("日");
-                        }
-                        String t = b.toString();
-                        prefs.edit().putString("puddingText", t).apply();
-                        v.setText(t);
-                        String m = "あなたの今月　" + myN + "／" + myNeed + "回" + (myAvg >= 0 ? "　平均 " + myAvg + "点" : "");
-                        if (myN < myNeed) m += "\n全員が必要回数を計測しないと達成になりません。毎日の計測をお願いします";
-                        else if (myAvg >= 0 && myAvg < target) m += "\nあなたが5点上げると、チーム平均が約" + String.format(Locale.US, "%.1f", 5f / members) + "点上がります";
-                        me.setText(m);
+                        String head;
+                        if (!p.has("avg")) head = "お取り寄せボーナス　今月スタート";
+                        else if (p.optBoolean("achieved")) head = "お取り寄せボーナス達成ペースです";
+                        else if (p.has("gap")) head = "お取り寄せボーナスまで　あと" + p.optString("gap") + "点";
+                        else head = "あと少し：全員の計測回数がそろえば達成";
+                        t1.setText(head);
+                        t2.setText("チーム平均 " + (p.has("avg") ? p.optString("avg") : "-") + "点／目標" + target + "点　あなた " + myN + "/" + need + "回");
+                        c.setVisibility(View.VISIBLE);
+                        prefs.edit().putString("bannerDay", today).apply();
                     }
                 });
             }

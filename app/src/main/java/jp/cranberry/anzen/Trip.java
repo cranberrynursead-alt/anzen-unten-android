@@ -20,7 +20,7 @@ public class Trip {
     public static final int OVER_STEP = 5, PER_KM = 15;
     public static final int LIMIT = 60;
     /** アプリの版（app/build.gradle の versionCode と必ず同じにする）。記録に付けて送る。 */
-    public static final int APP_VC = 21;
+    public static final int APP_VC = 22;
     /**
      * 高速道路・自動車専用道路の扱い：時速80km以上が30秒続いたら高速とみなし、上限を100km/hにする。
      * 60km/h未満が30秒続いたら一般道に戻す。高速とみなすまでの助走で数えた超過秒は取り消す。

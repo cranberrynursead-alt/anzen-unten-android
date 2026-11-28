@@ -93,6 +93,7 @@ public class MainActivity extends Activity {
         updateNotif();
         updateAuto();
         AutoStart.register(this);
+        maybeAutoAsk();
         if ("drive".equals(screen)) {
             h.removeCallbacks(tick);
             h.post(tick);
@@ -237,6 +238,7 @@ public class MainActivity extends Activity {
 
         myCard();
         teamCard();
+        puddingCard();
 
         LinearLayout hc = card();
         hc.addView(tv("走行履歴", 14, true, MUTED));
@@ -254,7 +256,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.18", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.20", 12, false, MUTED), 12);
 
         autoCard();
         notifCard();
@@ -287,24 +289,59 @@ public class MainActivity extends Activity {
         vAuto = tv("", 14, false, INK);
         add(c, vAuto, 8);
         add(c, tv("車で動き出したことをスマホが検知すると、8:00〜18:00の間は自動で計測を始めます。検知には1〜2分かかるため、出発前に「運転開始」を押すほうが確実です（併用できます）。", 12, false, MUTED), 6);
-        add(c, btn("自動開始を有効にする", Color.WHITE, ACCENT, new View.OnClickListener() {
+        add(c, btn(AutoStart.ready(this) ? "自動開始の状態を確認する" : "許可を設定する（自動開始）", Color.WHITE, ACCENT, new View.OnClickListener() {
             @Override
             public void onClick(View x) {
-                enableAuto();
+                enableAuto(true);
             }
         }), 10);
         updateAuto();
     }
 
+    private boolean autoManual = false;
+
+    /** 自動開始は標準でオン：名前があって許可がそろっていなければ、1日1回だけ自動で許可を求める。 */
+    private void maybeAutoAsk() {
+        if (!"idle".equals(screen) || AutoStart.ready(this)) return;
+        if (prefs.getString("driver", "").isEmpty()) return;
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                && !prefs.getBoolean("notifAsked", false)) return;
+        String today = new java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.JAPAN).format(new java.util.Date());
+        if (today.equals(prefs.getString("autoAskDay", ""))) return;
+        prefs.edit().putString("autoAskDay", today).apply();
+        enableAuto(false);
+    }
+
+    /** 権限の画面（アプリ情報）を開く。何度か拒否するとAndroidが許可画面を出さなくなるため。 */
+    private void openAppSettings(String how) {
+        android.widget.Toast.makeText(this, how, android.widget.Toast.LENGTH_LONG).show();
+        try {
+            startActivity(new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.parse("package:" + getPackageName())));
+        } catch (Exception e) {
+            startActivity(new Intent(android.provider.Settings.ACTION_SETTINGS));
+        }
+    }
+
     /** 自動開始に必要な許可を順番に求める（身体活動 → 位置情報 → 位置情報を「常に許可」）。 */
-    private void enableAuto() {
+    private void enableAuto(boolean manual) {
+        autoManual = manual;
         String name = nameEdit != null ? nameEdit.getText().toString().trim() : prefs.getString("driver", "");
+        if (name.isEmpty()) name = prefs.getString("driver", "");
         if (name.isEmpty()) {
             if (msg != null) fail("先にスタッフ名を入力してください。");
+            android.widget.Toast.makeText(this, "先に一番上のスタッフ名を入力してください", android.widget.Toast.LENGTH_LONG).show();
             return;
         }
         prefs.edit().putString("driver", name).apply();
         checkName(name);
+        if (AutoStart.ready(this)) {
+            AutoStart.register(this);
+            updateAuto();
+            if (manual) android.widget.Toast.makeText(this, "自動開始は有効です", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
         List<String> need = new ArrayList<>();
         if (!AutoStart.activityAllowed(this)) need.add(Manifest.permission.ACTIVITY_RECOGNITION);
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -328,7 +365,7 @@ public class MainActivity extends Activity {
         if (vAuto == null || !"idle".equals(screen)) return;
         long at = prefs.getLong("autoAt", 0);
         String reg = prefs.getString("autoReg", "");
-        vAuto.setText("状態　" + (AutoStart.ready(this) ? "有効" : "無効（下のボタンを押してください）")
+        vAuto.setText("状態　" + (AutoStart.ready(this) ? "有効（標準でオン）" : "許可が足りません（下のボタンを押してください）")
                 + "\n身体活動の許可　" + (AutoStart.activityAllowed(this) ? "あり" : "なし")
                 + "\n位置情報　" + (AutoStart.backgroundAllowed(this) ? "常に許可" : "「常に許可」になっていません")
                 + "\n検知の登録　" + ("ok".equals(reg) ? "済み" : reg.isEmpty() ? "未登録" : "失敗（" + reg + "）")
@@ -475,7 +512,7 @@ public class MainActivity extends Activity {
 
     private void teamCard() {
         LinearLayout c = card();
-        c.addView(tv("全体の平均（チーム目標 90点）", 14, true, MUTED));
+        c.addView(tv("全体の平均", 14, true, MUTED));
         vTeam = tv(prefs.getString("teamText", "全体平均を確認しています。"), 15, false, INK);
         add(c, vTeam, 8);
         add(c, tv("表示されるのは全員の平均だけです。個人の点数は公開されません。", 12, false, MUTED), 6);
@@ -492,8 +529,8 @@ public class MainActivity extends Activity {
                 else b.append("全体平均は集計中です（3名以上の記録がそろうと表示されます）");
                 if (w != null) {
                     int avg = w.optInt("avg");
-                    b.append("\n直近7日間　平均 ").append(avg).append("点（").append(w.optInt("n")).append("名）　")
-                            .append(avg >= goal ? "目標達成中" : "目標まであと" + (goal - avg) + "点");
+                    b.append("\n直近7日間　平均 ").append(avg).append("点（").append(w.optInt("n")).append("名）")
+                            ;
                 }
                 final String text = b.toString();
                 prefs.edit().putString("teamText", text).apply();
@@ -517,6 +554,82 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    // ---------- はにわプリン（チーム目標） ----------
+    private void puddingCard() {
+        LinearLayout c = card();
+        LinearLayout head = new LinearLayout(this);
+        head.setOrientation(LinearLayout.HORIZONTAL);
+        head.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        android.widget.ImageView pic = new android.widget.ImageView(this);
+        pic.setImageResource(R.drawable.ic_pudding);
+        head.addView(pic, new LinearLayout.LayoutParams(dp(64), dp(64)));
+        TextView ht = tv("お取り寄せボーナス（はにわプリン）", 16, true, INK);
+        ht.setPadding(dp(10), 0, 0, 0);
+        head.addView(ht);
+        c.addView(head);
+        final TextView v = tv(prefs.getString("puddingText", "チームの今月の平均を確認しています。"), 15, false, INK);
+        add(c, v, 8);
+        // 自分の今月の記録（端末内）
+        String ym = new java.text.SimpleDateFormat("yyyyMM", Locale.JAPAN).format(new java.util.Date());
+        JSONArray a = Uploader.load(this);
+        int n = 0, sum = 0;
+        for (int i = 0; i < a.length(); i++) {
+            JSONObject o = a.optJSONObject(i);
+            if (o == null || "skip".equals(o.optString("status"))) continue;
+            long d = o.optLong("date");
+            if (!ym.equals(new java.text.SimpleDateFormat("yyyyMM", Locale.JAPAN).format(new java.util.Date(d)))) continue;
+            n++;
+            sum += o.optInt("score");
+        }
+        final int myN = n, myAvg = n > 0 ? Math.round(sum / (float) n) : -1;
+        final TextView me = tv("", 14, false, INK);
+        add(c, me, 8);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                JSONObject s = Uploader.fetchStats();
+                final JSONObject p = s != null ? s.optJSONObject("pudding") : null;
+                h.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (isFinishing()) return;
+                        int target = p != null ? p.optInt("target", 85) : 85;
+                        int need = p != null ? p.optInt("need", 10) : 10;
+                        // 勤務日数が少ないスタッフ（池田さん＝週2日）は必要回数を個別に設定（集計側の needs）
+                        JSONObject needs = p != null ? p.optJSONObject("needs") : null;
+                        String myName = prefs.getString("driver", "");
+                        int myNeed = need;
+                        if (needs != null) {
+                            java.util.Iterator<String> it = needs.keys();
+                            while (it.hasNext()) {
+                                String k = it.next();
+                                if (!myName.isEmpty() && (myName.contains(k) || k.contains(myName))) myNeed = needs.optInt(k, need);
+                            }
+                        }
+                        int members = p != null ? p.optInt("members", 6) : 6;
+                        StringBuilder b = new StringBuilder();
+                        b.append("今月のチーム平均が").append(target).append("点以上で、全員にはにわプリンをお取り寄せ");
+                        if (p != null) {
+                            if (p.has("avg")) b.append("\n今月のチーム平均　").append(p.optString("avg")).append("点");
+                            else b.append("\n今月のチーム平均　まだ記録がありません");
+                            b.append("\n").append("必要回数を計測した人　").append(p.optInt("done")).append("／").append(members).append("人");
+                            b.append("\n").append(p.optBoolean("achieved") ? "お取り寄せボーナス達成ペースです"
+                                    : p.has("gap") ? "お取り寄せボーナスまで　あと" + p.optString("gap") + "点" : "");
+                            b.append("\n月末まで　").append(p.optInt("daysLeft")).append("日");
+                        }
+                        String t = b.toString();
+                        prefs.edit().putString("puddingText", t).apply();
+                        v.setText(t);
+                        String m = "あなたの今月　" + myN + "／" + myNeed + "回" + (myAvg >= 0 ? "　平均 " + myAvg + "点" : "");
+                        if (myN < myNeed) m += "\n全員が必要回数を計測しないと達成になりません。毎日の計測をお願いします";
+                        else if (myAvg >= 0 && myAvg < target) m += "\nあなたが5点上げると、チーム平均が約" + String.format(Locale.US, "%.1f", 5f / members) + "点上がります";
+                        me.setText(m);
+                    }
+                });
+            }
+        }).start();
+    }
+
     private void fail(String s) {
         msg.setText(s);
         msg.setVisibility(View.VISIBLE);
@@ -534,6 +647,7 @@ public class MainActivity extends Activity {
             List<String> need = new ArrayList<>();
             need.add(Manifest.permission.ACCESS_FINE_LOCATION);
             need.add(Manifest.permission.ACCESS_COARSE_LOCATION);
+            if (!AutoStart.activityAllowed(this)) need.add(Manifest.permission.ACTIVITY_RECOGNITION);
             if (Build.VERSION.SDK_INT >= 33) need.add(Manifest.permission.POST_NOTIFICATIONS);
             requestPermissions(need.toArray(new String[0]), REQ);
             return;
@@ -554,13 +668,25 @@ public class MainActivity extends Activity {
 
     @Override
     public void onRequestPermissionsResult(int code, String[] perms, int[] res) {
+        if (code == REQ_NOTIF) {
+            prefs.edit().putBoolean("notifAsked", true).apply();
+            maybeAutoAsk();
+            return;
+        }
         if (code == REQ_AUTO) {
             // 1段目（身体活動・位置情報）が通ったら、続けて「常に許可」を求める
-            if (AutoStart.activityAllowed(this) && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) enableAuto();
+            if (AutoStart.activityAllowed(this) && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                enableAuto(autoManual);
+            } else if (autoManual) {
+                openAppSettings("「権限」で「身体活動」と「位置情報（常に許可）」を許可してください");
+            }
             updateAuto();
             return;
         }
         if (code == REQ_AUTO_BG) {
+            if (!AutoStart.backgroundAllowed(this) && autoManual) {
+                openAppSettings("「権限」→「位置情報」→「常に許可」を選んでください");
+            }
             AutoStart.register(this);
             updateAuto();
             return;

@@ -254,7 +254,7 @@ public class MainActivity extends Activity {
                     + " 超過" + o.optInt("overSec") + "秒" + ("pending".equals(st) ? "・未送信" : "");
             add(hc, tv(line, 14, false, INK), 10);
         }
-        add(hc, tv("バージョン 1.17", 12, false, MUTED), 12);
+        add(hc, tv("バージョン 1.18", 12, false, MUTED), 12);
 
         autoCard();
         notifCard();
